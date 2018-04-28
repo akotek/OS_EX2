@@ -15,6 +15,22 @@ enum State {READY, WAITING, BLOCKED};
 typedef unsigned long address_t;
 // ----------------
 
+// data structures:
+// ----------------
+struct Thread {
+    int id;
+    State state;
+    sigjmp_buf env{};
+    vector <Thread*> dependencyThList;
+
+    Thread(int id, State state){
+        this->id = id;
+        this->state = state;
+    }
+
+};
+// ----------------
+
 // global/static variables
 // ----------------
 int globalThreadCounter = 1;
@@ -23,22 +39,6 @@ int totalSizeOfQuantums;
 vector <Thread> allThreadList;
 vector <Thread*> readyList; // represents readyQueue
 vector <Thread*> blockedList; // represents blockedListOfThreads
-// ----------------
-
-// data structures:
-// ----------------
-struct Thread {
-    int id;
-    State state;
-    sigjmp_buf env{};
-    //vector <Thread*> dependencyThList;
-
-    Thread(int id, State state){
-        this->id = id;
-        this->state = state;
-    }
-
-};
 // ----------------
 
 // helper functions:
@@ -70,7 +70,7 @@ int uthread_init(int quantum_usecs){
 
 }
 
-Thread initThread(void (*f), int threadId){
+Thread initThread(void (*f)(void), int threadId=globalThreadCounter){
     address_t sp, pc;
     char stack1[STACK_SIZE];
 
@@ -100,10 +100,11 @@ int uthread_spawn(void (*f)(void)){
     // init Thread control block and stack with register value and PC
     // tell dispatcher that it can run the Thread: put Thread in end of ready
     // list
-    struct Thread thread1 = initThread(f, globalThreadCounter);
+    struct Thread thread1 = initThread(f);
     globalThreadCounter++;
-    allThreadList.push_back(thread1);
-    readyList.push_back(&(allThreadList[allThreadList.size()]));
 
+    allThreadList.push_back(thread1);
+    Thread* thread1Ptr = &(allThreadList[allThreadList.size()]);
+    readyList.push_back(thread1Ptr);
 
 }

@@ -118,10 +118,10 @@ void setup(void)
   sigemptyset(&env[1]->__saved_mask);         
 }
 
-int main(void)
-{
-  setup();
-  siglongjmp(env[0], 1);
-  return 0;
-}
+//int main(void)
+//{
+//  setup();
+//  siglongjmp(env[0], 1);
+//  return 0;
+//}
 

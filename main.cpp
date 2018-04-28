@@ -16,10 +16,10 @@ void thread2()
 }
 
 
-int main()
-{
-
-    uthread_spawn(thread1);
-    std::cout << "Hello, World!" << std::endl;
-    return 0;
-}
+//int main()
+//{
+//
+//    uthread_spawn(thread1);
+//    std::cout << "Hello, World!" << std::endl;
+//    return 0;
+//}

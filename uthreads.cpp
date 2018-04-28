@@ -36,6 +36,7 @@ struct Thread {
 int globalThreadCounter = 1;
 int quantumSizeUsec;
 int totalSizeOfQuantums;
+Thread *mainThread;
 vector <Thread> allThreadList;
 vector <Thread*> readyList; // represents readyQueue
 vector <Thread*> blockedList; // represents blockedListOfThreads
@@ -57,16 +58,6 @@ namespace helperFuncs{
 }
 // ----------------
 
-/*
- * Description: This function initializes the Thread library.
- * You may assume that this function is called before any other Thread library
- * function, and that it is called exactly once.
-*/
-int uthread_init(int quantum_usecs){
-    if (quantum_usecs < 0) return -1;
-    quantumSizeUsec = quantum_usecs;
-
-}
 
 Thread initThread(void (*f)(void), int threadId=globalThreadCounter){
     address_t sp, pc;
@@ -83,6 +74,19 @@ Thread initThread(void (*f)(void), int threadId=globalThreadCounter){
 
     return newTh;
 }
+
+/*
+ * Description: This function initializes the Thread library.
+ * You may assume that this function is called before any other Thread library
+ * function, and that it is called exactly once.
+*/
+int uthread_init(int quantum_usecs){
+    if (quantum_usecs < 0) return -1;
+    quantumSizeUsec = quantum_usecs;
+    mainThread = initThread(nullptr, 0);
+    return 0;
+}
+
 /*
  * Description: This function creates a new Thread, whose entry point is the
  * function f with the signature void f(void). The Thread is added to the end
@@ -102,6 +106,7 @@ int uthread_spawn(void (*f)(void)){
     Thread* thread1Ptr = &(allThreadList[allThreadList.size()]);
     readyList.push_back(thread1Ptr);
 
+    mainThread;
     if (allThreadList.size() > MAX_THREAD_NUM) return -1;
     return thread1.id;
 }

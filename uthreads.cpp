@@ -18,10 +18,11 @@ typedef unsigned long address_t;
 // global/static variables
 // ----------------
 int globalThreadCounter = 1;
-int quantomSizeUsec;
-int totalSizeOfQuantoms;
-vector <Thread> readyList; // represents readyQueue
-vector <Thread> blockedList; // represents blockedListOfThreads
+int quantumSizeUsec;
+int totalSizeOfQuantums;
+vector <Thread> allThreadList;
+vector <Thread*> readyList; // represents readyQueue
+vector <Thread*> blockedList; // represents blockedListOfThreads
 // ----------------
 
 // data structures:
@@ -30,7 +31,7 @@ struct Thread {
     int id;
     State state;
     sigjmp_buf env{};
-    vector <Thread*> dependencyThList;
+    //vector <Thread*> dependencyThList;
 
     Thread(int id, State state){
         this->id = id;
@@ -65,7 +66,7 @@ namespace helperFuncs{
 int uthread_init(int quantum_usecs){
     if (quantum_usecs < 0) return -1;
 
-    quantomSizeUsec = quantum_usecs;
+    quantumSizeUsec = quantum_usecs;
 
 }
 
@@ -101,7 +102,8 @@ int uthread_spawn(void (*f)(void)){
     // list
     struct Thread thread1 = initThread(f, globalThreadCounter);
     globalThreadCounter++;
-    readyList.push_back(thread1);
+    allThreadList.push_back(thread1);
+    readyList.push_back(&(allThreadList[allThreadList.size()]));
 
 
 }

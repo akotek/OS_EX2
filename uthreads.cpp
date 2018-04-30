@@ -1,11 +1,13 @@
 #include <cstdio>
 #include <csetjmp>
 #include <csignal>
-#include <unistd.h>
-#include <sys/time.h>
+#include <cassert>
 #include <vector>
 #include "uthreads.h"
 using namespace std;
+
+//TODO: -delete asserts after
+//
 
 // Constants:
 // ----------------
@@ -33,13 +35,12 @@ struct Thread {
 
 // global/static variables
 // ----------------
-int globalThreadCounter = 1;
+int globalThreadCounter = 0;
+int totalSizeOfQuantums = 0;
 int quantumSizeUsec;
-int totalSizeOfQuantums;
-Thread *mainThread;
 vector <Thread> allThreadList;
-vector <Thread*> readyList; // represents readyQueue
-vector <Thread*> blockedList; // represents blockedListOfThreads
+vector <Thread*> readyThreadPtrList; // represents readyQueue
+vector <Thread*> blockedThreadPtrList; // represents blockedListOfThreads
 // ----------------
 
 // helper functions:
@@ -54,14 +55,15 @@ namespace helperFuncs{
         : "0" (addr));
         return ret;
     }
+
     // add another helper funcs here
 }
 // ----------------
 
-
 Thread initThread(void (*f)(void), int threadId=globalThreadCounter){
+    if (f == nullptr) return Thread{0, READY}; //init mainThread
     address_t sp, pc;
-    char stack1[STACK_SIZE];
+    char stack1[STACK_SIZE]; //TODO handle stack_size usages
 
     Thread newTh (threadId, READY);
     sp = (address_t)stack1 + STACK_SIZE - sizeof(address_t);
@@ -82,8 +84,15 @@ Thread initThread(void (*f)(void), int threadId=globalThreadCounter){
 */
 int uthread_init(int quantum_usecs){
     if (quantum_usecs < 0) return -1;
+
     quantumSizeUsec = quantum_usecs;
-    mainThread = initThread(nullptr, 0);
+    int mainThread = uthread_spawn(nullptr); // init mainThread
+    totalSizeOfQuantums++;
+    assert(mainThread != -1);
+
+
+
+    // timer handler- start counting time
     return 0;
 }
 
@@ -98,16 +107,15 @@ int uthread_init(int quantum_usecs){
  * On failure, return -1.
 */
 int uthread_spawn(void (*f)(void)){
-
-    struct Thread thread1 = initThread(f);
-    globalThreadCounter++;
-
-    allThreadList.push_back(thread1);
-    Thread* thread1Ptr = &(allThreadList[allThreadList.size()]);
-    readyList.push_back(thread1Ptr);
-
-    mainThread;
+//    assert(f != nullptr);
     if (allThreadList.size() > MAX_THREAD_NUM) return -1;
+    struct Thread thread1 = initThread(f);
+    allThreadList.push_back(thread1);
+    globalThreadCounter +=1;
+
+    Thread* thread1Ptr = &(allThreadList[allThreadList.size()-1]);
+    readyThreadPtrList.push_back(thread1Ptr);
+
     return thread1.id;
 }
 

@@ -1,0 +1,14 @@
+EX1
+-----------
+
+TODO find out:
+* mainthread ???? RIGHT NOW he is added to our readylist
+
+TODO first block:
+- finish init, spawn, terminate
+- manage PC/SP for all threads
+- test threads launch
+
+TODO second meeting:
+- RR algorithm
+-

@@ -23,6 +23,7 @@ struct Thread {
     int id;
     State state;
     sigjmp_buf env{};
+    char stack[STACK_SIZE];
     //vector <int> dependencyThList;
 
     Thread(int id, State state){
@@ -63,10 +64,9 @@ namespace helperFuncs{
 Thread initThread(void (*f)(void), int threadId=globalThreadCounter){
     if (f == nullptr) return Thread{0, READY}; //init mainThread
     address_t sp, pc;
-    char stack1[STACK_SIZE]; //TODO handle stack_size usages
 
     Thread newTh (threadId, READY);
-    sp = (address_t)stack1 + STACK_SIZE - sizeof(address_t);
+    sp = (address_t)newTh.stack + STACK_SIZE - sizeof(address_t);
     pc = (address_t)f; // sets thread to work on func f
 
     sigsetjmp(newTh.env, 1);

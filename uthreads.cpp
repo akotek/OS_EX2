@@ -3,6 +3,8 @@
 #include <csignal>
 #include <cassert>
 #include <vector>
+#include <sys/time.h>
+#include <iostream>
 #include "uthreads.h"
 using namespace std;
 
@@ -20,15 +22,16 @@ typedef unsigned long address_t;
 // data structures:
 // ----------------
 struct Thread {
+    char stack[STACK_SIZE];
+    sigjmp_buf env{};
+    int quantomPassed;
     int id;
     State state;
-    sigjmp_buf env{};
-    char stack[STACK_SIZE];
-    //vector <int> dependencyThList;
 
     Thread(int id, State state){
         this->id = id;
         this->state = state;
+        this->quantomPassed = 0;
     }
 
 };
@@ -38,7 +41,6 @@ struct Thread {
 // ----------------
 int globalThreadCounter = 0;
 int totalSizeOfQuantums = 0;
-int quantumSizeUsec;
 vector <Thread> allThreadList;
 vector <Thread*> readyThreadPtrList; // represents readyQueue
 vector <Thread*> blockedThreadPtrList; // represents blockedListOfThreads
@@ -65,30 +67,60 @@ Thread initThread(void (*f)(void), int threadId=globalThreadCounter){
     if (f == nullptr) return Thread{0, READY}; //init mainThread
     address_t sp, pc;
 
-    Thread newTh (threadId, READY);
-    sp = (address_t)newTh.stack + STACK_SIZE - sizeof(address_t);
+    Thread newThread (threadId, READY);
+    sp = (address_t)newThread.stack + STACK_SIZE - sizeof(address_t);
     pc = (address_t)f; // sets thread to work on func f
 
-    sigsetjmp(newTh.env, 1);
-    (newTh.env->__jmpbuf)[JB_SP] = helperFuncs::translate_address(sp);
-    (newTh.env->__jmpbuf)[JB_PC] = helperFuncs::translate_address(pc);
-    sigemptyset(&newTh.env->__saved_mask);
+    sigsetjmp(newThread.env, 1);
+    (newThread.env->__jmpbuf)[JB_SP] = helperFuncs::translate_address(sp);
+    (newThread.env->__jmpbuf)[JB_PC] = helperFuncs::translate_address(pc);
+    sigemptyset(&newThread.env->__saved_mask);
 
-    return newTh;
+    return newThread;
 }
 
+void roundRobinAlgorithm(int sig){
+
+}
 /*
  * Description: This function initializes the Thread library.
  * You may assume that this function is called before any other Thread library
  * function, and that it is called exactly once.
 */
 int uthread_init(int quantum_usecs){
-    if (quantum_usecs < 0) return -1;
+    if (quantum_usecs < 0)
+    {
+        cerr << "Wrong quantom input" << endl;
+        return -1;
+    }
 
-    quantumSizeUsec = quantum_usecs;
     int mainThread = uthread_spawn(nullptr); // init mainThread
     totalSizeOfQuantums++;
     assert(mainThread != -1);
+
+    //TODO implement below:
+//
+//    struct sigaction sa;
+//    struct itimerval timer;
+//
+//    // Install timer_handler as the signal handler for SIGVTALRM.
+//    sa.sa_handler = &roundRobinAlgorithm;
+//    if (sigaction(SIGVTALRM, &sa, NULL) < 0) {
+//        printf("sigaction error.");
+//    }
+//
+//    // Configure the timer to expire after 1 sec... */
+//    timer.it_value.tv_sec = 1;		// first time interval, seconds part
+//    timer.it_value.tv_usec = 0;		// first time interval, microseconds part
+//
+//    // configure the timer to expire every 3 sec after that.
+//    timer.it_interval.tv_sec = 3;	// following time intervals, seconds part
+//    timer.it_interval.tv_usec = 0;	// following time intervals, microseconds part
+//
+//    // Start a virtual timer. It counts down whenever this process is executing.
+//    if (setitimer (ITIMER_VIRTUAL, &timer, NULL)) {
+//        printf("setitimer error.");
+//    }
 
 
 
@@ -108,7 +140,10 @@ int uthread_init(int quantum_usecs){
 */
 int uthread_spawn(void (*f)(void)){
 //    assert(f != nullptr);
-    if (allThreadList.size() > MAX_THREAD_NUM) return -1;
+    if (allThreadList.size() > MAX_THREAD_NUM)    {
+        cerr << "Num of threads exceeded" << endl;
+        return -1;
+    }
     struct Thread thread1 = initThread(f);
     allThreadList.push_back(thread1);
     globalThreadCounter +=1;

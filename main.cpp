@@ -15,11 +15,11 @@ void thread2()
     halt();
 }
 
-
-int main()
-{
-    uthread_init(30);
-    uthread_spawn(thread1);
-    std::cout << "Hello, World!" << std::endl;
-    return 0;
-}
+//
+//int main()
+//{
+//    uthread_init(30);
+//    uthread_spawn(thread1);
+//    std::cout << "Hello, World!" << std::endl;
+//    return 0;
+//}

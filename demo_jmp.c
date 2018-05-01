@@ -108,6 +108,7 @@ void setup(void)
   sigsetjmp(env[0], 1);
   (env[0]->__jmpbuf)[JB_SP] = translate_address(sp);
   (env[0]->__jmpbuf)[JB_PC] = translate_address(pc);
+    //sigsetjmp(env[0], 1);
   sigemptyset(&env[0]->__saved_mask);     
 
   sp = (address_t)stack2 + STACK_SIZE - sizeof(address_t);
@@ -124,4 +125,4 @@ void setup(void)
 //  siglongjmp(env[0], 1);
 //  return 0;
 //}
-//
+

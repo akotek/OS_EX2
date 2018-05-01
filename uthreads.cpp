@@ -9,11 +9,12 @@
 using namespace std;
 
 //TODO: -delete asserts after
-//
+//TODO: change CERR to printing in all func's
+//TODO: make validation input static func's and remove from all functions
 
 // Constants:
 // ----------------
-enum State {READY, WAITING, BLOCKED};
+static enum State {READY, WAITING, BLOCKED};
 #define JB_SP 6
 #define JB_PC 7
 typedef unsigned long address_t;
@@ -21,17 +22,15 @@ typedef unsigned long address_t;
 
 // data structures:
 // ----------------
-struct Thread {
+static struct Thread {
     char stack[STACK_SIZE];
     sigjmp_buf env{};
-    int quantomPassed;
     int id;
     State state;
 
     Thread(int id, State state){
         this->id = id;
         this->state = state;
-        this->quantomPassed = 0;
     }
 
 };
@@ -39,11 +38,11 @@ struct Thread {
 
 // global/static variables
 // ----------------
-int globalThreadCounter = 0;
-int totalSizeOfQuantums = 0;
-vector <Thread> allThreadList;
-vector <Thread*> readyThreadPtrList; // represents readyQueue
-vector <Thread*> blockedThreadPtrList; // represents blockedListOfThreads
+static int globalThreadCounter = 0;
+static int totalSizeOfQuantums = 0;
+static vector <Thread> allThreadList;
+static vector <Thread*> readyThreadPtrList; // represents readyQueue
+static vector <Thread*> blockedThreadPtrList; // represents blockedListOfThreads
 // ----------------
 
 // helper functions:
@@ -80,7 +79,28 @@ Thread initThread(void (*f)(void), int threadId=globalThreadCounter){
 }
 
 void roundRobinAlgorithm(int sig){
+    cerr << "Wrong quantom input" << endl;
+}
 
+int setTimerSignalHandler(int quantomUsecs){
+    struct sigaction sa;
+    struct itimerval timer;
+
+    // Install RR algorithm as the signal handler for SIGVTALRM:
+    sa.sa_handler = &roundRobinAlgorithm;
+    if (sigaction(SIGVTALRM, &sa, NULL) < 0) {
+        printf("sigaction error.");
+    }
+
+    // Start counting time:
+    timer.it_value.tv_sec = 1;
+    timer.it_value.tv_usec = 0;
+    timer.it_interval.tv_sec = 3;
+    timer.it_interval.tv_usec = 0;
+    if (setitimer (ITIMER_VIRTUAL, &timer, NULL)) {
+        cerr << "set_timer error" << endl;
+        return -1;
+    }
 }
 /*
  * Description: This function initializes the Thread library.
@@ -93,38 +113,13 @@ int uthread_init(int quantum_usecs){
         cerr << "Wrong quantom input" << endl;
         return -1;
     }
-
     int mainThread = uthread_spawn(nullptr); // init mainThread
     totalSizeOfQuantums++;
     assert(mainThread != -1);
 
-    //TODO implement below:
-//
-//    struct sigaction sa;
-//    struct itimerval timer;
-//
-//    // Install timer_handler as the signal handler for SIGVTALRM.
-//    sa.sa_handler = &roundRobinAlgorithm;
-//    if (sigaction(SIGVTALRM, &sa, NULL) < 0) {
-//        printf("sigaction error.");
-//    }
-//
-//    // Configure the timer to expire after 1 sec... */
-//    timer.it_value.tv_sec = 1;		// first time interval, seconds part
-//    timer.it_value.tv_usec = 0;		// first time interval, microseconds part
-//
-//    // configure the timer to expire every 3 sec after that.
-//    timer.it_interval.tv_sec = 3;	// following time intervals, seconds part
-//    timer.it_interval.tv_usec = 0;	// following time intervals, microseconds part
-//
-//    // Start a virtual timer. It counts down whenever this process is executing.
-//    if (setitimer (ITIMER_VIRTUAL, &timer, NULL)) {
-//        printf("setitimer error.");
-//    }
+    int setTimer = setTimerSignalHandler(quantum_usecs);
+    assert(setTimer != -1);
 
-
-
-    // timer handler- start counting time
     return 0;
 }
 
@@ -154,6 +149,19 @@ int uthread_spawn(void (*f)(void)){
     return thread1.id;
 }
 
+int findThreadById(int threadId)
+{
+    assert(threadId >= 0);
+    for(vector<Thread>::size_type i = 0; i != allThreadList.size(); i++) {
+        /* std::cout << someVector[i]; ... */
+        if (allThreadList[i].id == threadId) return (int)i;
+    }
+    cerr << "Thread not found in Thread main vector" << endl;
+    return -1;
+}
+int findThreadPtrById(int threadId){
+    return 1; //TODO
+}
 /*
  * Description: This function terminates the Thread with ID tid and deletes
  * it from all relevant control structures. All the resources allocated by
@@ -165,7 +173,28 @@ int uthread_spawn(void (*f)(void)){
  * terminated and -1 otherwise. If a Thread terminates itself or the main
  * Thread is terminated, the function does not return.
 */
-int uthread_terminate(int tid);
+int uthread_terminate(int tid){
+    if (tid < 0)
+    {
+        cerr << "thread library error::wrong id input in uterminate" << endl;
+        return -1;
+    }
+
+    if (tid == 0){
+        cerr << "thread library error::terminating main thread, exiting" <<
+                                                                         endl;
+        exit(0);
+    }
+
+    int threadIndex = findThreadById(tid);
+    if (threadIndex == -1){
+        cerr << "thread library error::given thread does not exist" << endl;
+        return -1;
+    }
+
+    if (allThreadList[threadIndex].state == READY);
+    allThreadList.erase(allThreadList.begin() + threadIndex);
+}
 
 
 /*

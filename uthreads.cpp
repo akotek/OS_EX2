@@ -9,28 +9,43 @@
 using namespace std;
 
 //TODO: -delete asserts after
-//TODO: change CERR to printing in all func's
-//TODO: make validation input static func's and remove from all functions
 
-// Constants:
+// Constants and DEFINES:
 // ----------------
-static enum State {READY, WAITING, BLOCKED};
+enum State {RUNNING, READY, BLOCKED};
+typedef unsigned long address_t;
 #define JB_SP 6
 #define JB_PC 7
-typedef unsigned long address_t;
+#define USEC_TO_MICRO  1000000
+#define SYS_ERR_MSG "system error: "
+#define THREAD_LIB_ERR_MSG "thread library error: "
+#define SIGEMPTYSET_ERR_MSG "sigemptyset error."
+#define SIGADDSET_ERR_MSG "sigaddset error."
+#define SIGPROCMASK_ERR_MSG "sigprocmask error."
+#define INVALID_QUANTOM_MSG "invalid quantum size"
+#define SIGACTION_ERR_MSG "sigaction error."
+#define TIMER_ERR_MSG "setitimer error."
+#define MAX_THREAD_ERR_MSG "too many threads, can't create new thread."
+#define BAD_TID_ERR_MSG "invalid tid."
+#define TERMINATING_MAIN_THREAD_MSG "terminating main thread, existing"
+#define THREAD_NOT_FOUND_MSG "thread not found in thread list"
+#define MAIN_THREAD_BLOCK_ERR_MSG "error trying to block main thread"
+#define SYNC_RUNNING_THRD_MSG "not allowed to sync running thread"
 // ----------------
 
 // data structures:
 // ----------------
-static struct Thread {
+struct Thread {
+    int id;
     char stack[STACK_SIZE];
     sigjmp_buf env{};
-    int id;
     State state;
+    int quantomsRanByThread;
 
-    Thread(int id, State state){
+    Thread(int id){
         this->id = id;
-        this->state = state;
+        this->state = READY;
+        this->quantomsRanByThread = 0;
     }
 
 };
@@ -40,6 +55,8 @@ static struct Thread {
 // ----------------
 static int globalThreadCounter = 0;
 static int totalSizeOfQuantums = 0;
+struct sigaction sa;
+struct itimerval timer;
 static vector <Thread> allThreadList;
 static vector <Thread*> readyThreadPtrList; // represents readyQueue
 static vector <Thread*> blockedThreadPtrList; // represents blockedListOfThreads
@@ -63,12 +80,11 @@ namespace helperFuncs{
 // ----------------
 
 Thread initThread(void (*f)(void), int threadId=globalThreadCounter){
-    if (f == nullptr) return Thread{0, READY}; //init mainThread
     address_t sp, pc;
 
-    Thread newThread (threadId, READY);
+    Thread newThread (threadId);
     sp = (address_t)newThread.stack + STACK_SIZE - sizeof(address_t);
-    pc = (address_t)f; // sets thread to work on func f
+    pc = (f != nullptr ? (address_t)f : 0); // 0 if mainThread
 
     sigsetjmp(newThread.env, 1);
     (newThread.env->__jmpbuf)[JB_SP] = helperFuncs::translate_address(sp);
@@ -78,29 +94,43 @@ Thread initThread(void (*f)(void), int threadId=globalThreadCounter){
     return newThread;
 }
 
+void setBlockedSignal(){
+    sigset_t set;
+    sigemptyset(&set);
+    sigaddset(&set, SIGVTALRM);
+    sigprocmask(SIG_BLOCK, &set, NULL);
+}
+void unblockSignal(){
+    sigset_t set;
+    sigemptyset(&set);
+    sigaddset(&set, SIGVTALRM);
+    sigprocmask(SIG_UNBLOCK, &set, NULL);
+}
+
 void roundRobinAlgorithm(int sig){
     cerr << "Wrong quantom input" << endl;
 }
 
 int setTimerSignalHandler(int quantomUsecs){
-    struct sigaction sa;
-    struct itimerval timer;
 
     // Install RR algorithm as the signal handler for SIGVTALRM:
     sa.sa_handler = &roundRobinAlgorithm;
-    if (sigaction(SIGVTALRM, &sa, NULL) < 0) {
-        printf("sigaction error.");
+    if (sigaction(SIGVTALRM, &sa, nullptr) < 0) {
+        cerr << SIGACTION_ERR_MSG << endl;
     }
 
+    int sec = quantomUsecs / USEC_TO_MICRO;
+    int microsec = quantomUsecs % USEC_TO_MICRO;
     // Start counting time:
-    timer.it_value.tv_sec = 1;
-    timer.it_value.tv_usec = 0;
-    timer.it_interval.tv_sec = 3;
-    timer.it_interval.tv_usec = 0;
-    if (setitimer (ITIMER_VIRTUAL, &timer, NULL)) {
-        cerr << "set_timer error" << endl;
+    timer.it_value.tv_sec = sec;
+    timer.it_value.tv_usec = microsec;
+    timer.it_interval.tv_sec = sec;
+    timer.it_interval.tv_usec = microsec;
+    if (setitimer (ITIMER_VIRTUAL, &timer, nullptr)) {
+        cerr << TIMER_ERR_MSG << endl;
         return -1;
     }
+    return 0;
 }
 /*
  * Description: This function initializes the Thread library.
@@ -108,18 +138,21 @@ int setTimerSignalHandler(int quantomUsecs){
  * function, and that it is called exactly once.
 */
 int uthread_init(int quantum_usecs){
+    //create mask to block signals() //tODO
     if (quantum_usecs < 0)
     {
-        cerr << "Wrong quantom input" << endl;
+        cerr << SYS_ERR_MSG << INVALID_QUANTOM_MSG << endl;
         return -1;
     }
-    int mainThread = uthread_spawn(nullptr); // init mainThread
-    totalSizeOfQuantums++;
-    assert(mainThread != -1);
 
     int setTimer = setTimerSignalHandler(quantum_usecs);
     assert(setTimer != -1);
 
+    int mainThread = uthread_spawn(nullptr); // init mainThread
+    totalSizeOfQuantums++;
+    assert(mainThread != -1);
+
+    //unblock signals() //tODO
     return 0;
 }
 
@@ -136,9 +169,10 @@ int uthread_init(int quantum_usecs){
 int uthread_spawn(void (*f)(void)){
 //    assert(f != nullptr);
     if (allThreadList.size() > MAX_THREAD_NUM)    {
-        cerr << "Num of threads exceeded" << endl;
+        cerr << THREAD_LIB_ERR_MSG << MAX_THREAD_ERR_MSG << endl;
         return -1;
     }
+
     struct Thread thread1 = initThread(f);
     allThreadList.push_back(thread1);
     globalThreadCounter +=1;
@@ -153,14 +187,19 @@ int findThreadById(int threadId)
 {
     assert(threadId >= 0);
     for(vector<Thread>::size_type i = 0; i != allThreadList.size(); i++) {
-        /* std::cout << someVector[i]; ... */
         if (allThreadList[i].id == threadId) return (int)i;
     }
-    cerr << "Thread not found in Thread main vector" << endl;
+    cerr << THREAD_NOT_FOUND_MSG << endl;
     return -1;
 }
-int findThreadPtrById(int threadId){
-    return 1; //TODO
+
+//Runs on ptrVectorList
+int findThreadPtrById(int threadId, vector<Thread*>& vector1){
+    assert(threadId >= 0);
+    for(vector<Thread>::size_type i = 0; i != vector1.size(); i++) {
+        if (vector1[i]->id == threadId) return (int)i;
+    }
+    return -1;
 }
 /*
  * Description: This function terminates the Thread with ID tid and deletes
@@ -176,24 +215,27 @@ int findThreadPtrById(int threadId){
 int uthread_terminate(int tid){
     if (tid < 0)
     {
-        cerr << "thread library error::wrong id input in uterminate" << endl;
+        cerr << THREAD_LIB_ERR_MSG << BAD_TID_ERR_MSG << endl;
         return -1;
     }
-
     if (tid == 0){
-        cerr << "thread library error::terminating main thread, exiting" <<
-                                                                         endl;
+        cerr << TERMINATING_MAIN_THREAD_MSG <<  endl;
         exit(0);
     }
 
-    int threadIndex = findThreadById(tid);
-    if (threadIndex == -1){
-        cerr << "thread library error::given thread does not exist" << endl;
-        return -1;
+    State threadState = allThreadList[tid].state;
+    if (threadState == READY || threadState == RUNNING){
+        int threadIdx = findThreadPtrById(tid, readyThreadPtrList);
+        readyThreadPtrList.erase(readyThreadPtrList.begin() + threadIdx);
+    }
+    else if (threadState == BLOCKED){
+        int threadIdx = findThreadPtrById(tid, blockedThreadPtrList);
+        blockedThreadPtrList.erase(blockedThreadPtrList.begin() + threadIdx);
     }
 
-    if (allThreadList[threadIndex].state == READY);
-    allThreadList.erase(allThreadList.begin() + threadIndex);
+    globalThreadCounter--;
+
+    return 0;
 }
 
 
@@ -206,7 +248,19 @@ int uthread_terminate(int tid){
  * effect and is not considered as an error.
  * Return value: On success, return 0. On failure, return -1.
 */
-int uthread_block(int tid);
+int uthread_block(int tid){
+    if (tid < 0) {
+        cerr << THREAD_LIB_ERR_MSG << BAD_TID_ERR_MSG << endl;
+        return -1;
+    }
+    if (tid == 0){
+        cerr << THREAD_LIB_ERR_MSG << MAIN_THREAD_BLOCK_ERR_MSG << endl;
+        return -1;
+    }
+    allThreadList[tid].state = BLOCKED;
+
+
+}
 
 
 /*

@@ -5,7 +5,7 @@ TODO find out:
 
 TODO first block:
 - finish init, spawn, terminate
-- manage PC/SP for all threads
+- manage blocked/unblocked signals
 - test threads launch
 
 TODO second meeting:

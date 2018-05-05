@@ -49,8 +49,8 @@ struct Thread {
 //        this->state = READY;
         this->quantomsRanByThread = 0;
     }
-
 };
+
 // ----------------
 
 // global/static variables
@@ -143,7 +143,9 @@ void unblockSignal(){
 
 
 void roundRobinAlgorithm(int signal){
+    totalSizeOfQuantums++;
     static int currentThread = readyThreadQueue[0];
+    threadsVector[currentThread].quantomsRanByThread++;
     threadsState[currentThread] = READY;
     readyThreadQueue.erase(readyThreadQueue.begin());
     readyThreadQueue.push_back(currentThread);
@@ -433,6 +435,10 @@ int uthread_get_quantums(int tid)
     if(tid < 0 || threadsState[tid] == NOT_ACTIVE)
     {
         return -1;
+    }
+    if(threadsState[tid] == RUNNING)
+    {
+        return threadsVector[tid].quantomsRanByThread+1;
     }
     return threadsVector[tid].quantomsRanByThread;
 }

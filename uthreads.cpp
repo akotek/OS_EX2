@@ -12,7 +12,7 @@ using namespace std;
 
 // Constants and DEFINES:
 // ----------------
-enum State {RUNNING, READY, BLOCKED};
+enum State {NOT_ACTIVE, RUNNING, READY, BLOCKED};
 typedef unsigned long address_t;
 #define JB_SP 6
 #define JB_PC 7
@@ -39,12 +39,14 @@ struct Thread {
     int id;
     char stack[STACK_SIZE];
     sigjmp_buf env{};
-    State state;
+//    State state;
     int quantomsRanByThread;
+    int syncThreadId = -1;
+
 
     Thread(int id){
         this->id = id;
-        this->state = READY;
+//        this->state = READY;
         this->quantomsRanByThread = 0;
     }
 
@@ -57,9 +59,14 @@ static int globalThreadCounter = 0;
 static int totalSizeOfQuantums = 0;
 struct sigaction sa;
 struct itimerval timer;
-static vector <Thread> allThreadList;
-static vector <Thread*> readyThreadPtrList; // represents readyQueue
-static vector <Thread*> blockedThreadPtrList; // represents blockedListOfThreads
+static vector <Thread> threadsVector; // TODO: check efficiency vs. list
+static State threadsState[MAX_THREAD_NUM]; // represents
+static vector<int> readyThreadQueue; // represents readyQueue
+
+
+//static vector <Thread*> readyThreadPtrList;
+//static vector <Thread*> blockedThreadPtrList; // represents blockedListOfThreads
+
 // ----------------
 
 // helper functions:
@@ -75,17 +82,41 @@ namespace helperFuncs{
         return ret;
     }
 
-    // add another helper funcs here
+
+    // returns the next smallest unused thread id
+    int findNextThreadId()
+    {
+        for(int idx=0; idx<MAX_THREAD_NUM; idx++)
+        {
+            if(threadsState[idx] == NOT_ACTIVE)
+            {
+                return idx;
+            }
+        }
+    }
+
+    int findReadyThreadById(int threadId)
+    {
+        assert(threadId >= 0);
+        for(vector<int>::size_type i = 0; i != readyThreadQueue.size(); i++) {
+            if (readyThreadQueue[i] == threadId) return (int)i;
+        }
+        cerr << THREAD_NOT_FOUND_MSG << endl;
+        return -1;
+    }
+
 }
+
+
+
 // ----------------
 
-Thread initThread(void (*f)(void), int threadId=globalThreadCounter){
+Thread initThread(void (*f)(void), int threadId){
     address_t sp, pc;
 
     Thread newThread (threadId);
     sp = (address_t)newThread.stack + STACK_SIZE - sizeof(address_t);
-    pc = (f != nullptr ? (address_t)f : 0); // 0 if mainThread
-
+    pc = (f != nullptr ? (address_t)f : 0); // 0 if mainThread -TODO: maybe it not contradict vector
     sigsetjmp(newThread.env, 1);
     (newThread.env->__jmpbuf)[JB_SP] = helperFuncs::translate_address(sp);
     (newThread.env->__jmpbuf)[JB_PC] = helperFuncs::translate_address(pc);
@@ -106,6 +137,10 @@ void unblockSignal(){
     sigaddset(&set, SIGVTALRM);
     sigprocmask(SIG_UNBLOCK, &set, NULL);
 }
+
+
+
+
 
 void roundRobinAlgorithm(int sig){
     cerr << "Wrong quantom input" << endl;
@@ -135,10 +170,12 @@ int setTimerSignalHandler(int quantomUsecs){
 /*
  * Description: This function initializes the Thread library.
  * You may assume that this function is called before any other Thread library
- * function, and that it is called exactly once.
+ * function, and that it is called exactly once. The input to the function is
+ * the length of a quantum in micro-seconds. It is an error to call this
+ * function with non-positive quantum_usecs.
+ * Return value: On success, return 0. On failure, return -1.
 */
 int uthread_init(int quantum_usecs){
-    //create mask to block signals() //tODO
     if (quantum_usecs < 0)
     {
         cerr << SYS_ERR_MSG << INVALID_QUANTOM_MSG << endl;
@@ -149,12 +186,15 @@ int uthread_init(int quantum_usecs){
     assert(setTimer != -1);
 
     int mainThread = uthread_spawn(nullptr); // init mainThread
+    threadsState[0] = READY;
+    globalThreadCounter++;
     totalSizeOfQuantums++;
     assert(mainThread != -1);
 
-    //unblock signals() //tODO
     return 0;
 }
+
+
 
 /*
  * Description: This function creates a new Thread, whose entry point is the
@@ -167,40 +207,43 @@ int uthread_init(int quantum_usecs){
  * On failure, return -1.
 */
 int uthread_spawn(void (*f)(void)){
+    //create mask to block signals() //tODO
+
 //    assert(f != nullptr);
-    if (allThreadList.size() > MAX_THREAD_NUM)    {
+    if (threadsVector.size() > MAX_THREAD_NUM)    {
         cerr << THREAD_LIB_ERR_MSG << MAX_THREAD_ERR_MSG << endl;
         return -1;
     }
 
-    struct Thread thread1 = initThread(f);
-    allThreadList.push_back(thread1);
+
+    int threadId = helperFuncs::findNextThreadId();
+    struct Thread spawnedThread = initThread(f, threadId);
+    threadsState[threadId] = READY;
+    if (threadId != 0) // the main thread shouldn't be inserted to the ready queue
+    {
+        readyThreadQueue.push_back(threadId);
+    }
+    threadsVector.insert(threadsVector.begin() + threadId, spawnedThread);
     globalThreadCounter +=1;
 
-    Thread* thread1Ptr = &(allThreadList[allThreadList.size()-1]);
-    readyThreadPtrList.push_back(thread1Ptr);
 
-    return thread1.id;
+
+    //unblock signals() // TODO
+
+    return spawnedThread.id;
+
 }
 
-int findThreadById(int threadId)
+void resumeSyncThread(int tid)
 {
-    assert(threadId >= 0);
-    for(vector<Thread>::size_type i = 0; i != allThreadList.size(); i++) {
-        if (allThreadList[i].id == threadId) return (int)i;
+    int syncThreadId = threadsVector[tid].syncThreadId;
+    if(syncThreadId != -1)
+    {
+        uthread_resume(syncThreadId);
     }
-    cerr << THREAD_NOT_FOUND_MSG << endl;
-    return -1;
 }
 
-//Runs on ptrVectorList
-int findThreadPtrById(int threadId, vector<Thread*>& vector1){
-    assert(threadId >= 0);
-    for(vector<Thread>::size_type i = 0; i != vector1.size(); i++) {
-        if (vector1[i]->id == threadId) return (int)i;
-    }
-    return -1;
-}
+
 /*
  * Description: This function terminates the Thread with ID tid and deletes
  * it from all relevant control structures. All the resources allocated by
@@ -220,25 +263,16 @@ int uthread_terminate(int tid){
     }
     if (tid == 0){
         cout << TERMINATING_MAIN_THREAD_MSG <<  endl; // it's not an error
-        vector<Thread>().swap(allThreadList); // releasing memory by swapping to an empty vector
-        vector<Thread*>().swap(blockedThreadPtrList);
-        vector<Thread*>().swap(readyThreadPtrList);
+        vector<Thread>().swap(threadsVector); // releasing memory by swapping to an empty vector
         exit(0);
     }
 
-    State threadState = allThreadList[tid].state;
-    if (threadState == READY || threadState == RUNNING){
-        int threadIdx = findThreadPtrById(tid, readyThreadPtrList); // TODO: use vec.at(index)?
-        readyThreadPtrList.erase(readyThreadPtrList.begin() + threadIdx);
-
-    }
-    else if (threadState == BLOCKED){
-        int threadIdx = findThreadPtrById(tid, blockedThreadPtrList);
-        blockedThreadPtrList.erase(blockedThreadPtrList.begin() + threadIdx);
-    }
-    // TODO: ask aviv - should have a mechanism for saving the unused index?
+    threadsState[tid] = NOT_ACTIVE;
+    resumeSyncThread(tid);
+    threadsVector[tid] = nullptr;
+    int idx = helperFuncs::findReadyThreadById(tid);
+    readyThreadQueue.erase(readyThreadQueue.begin()+idx); // TODO: check if resizing is needed
     globalThreadCounter--;
-
     return 0;
 }
 
@@ -253,9 +287,8 @@ int uthread_terminate(int tid){
  * Return value: On success, return 0. On failure, return -1.
 */
 int uthread_block(int tid){
-    int idx = findThreadById(tid); // TODO: ask aviv - should check if tid exist?
 
-    if (tid < 0 || idx == -1) {
+    if (tid < 0) {
         cerr << THREAD_LIB_ERR_MSG << BAD_TID_ERR_MSG << endl;
         return -1;
     }
@@ -263,8 +296,20 @@ int uthread_block(int tid){
         cerr << THREAD_LIB_ERR_MSG << MAIN_THREAD_BLOCK_ERR_MSG << endl;
         return -1;
     }
+    if (threadsState[tid] == NOT_ACTIVE)
+    {
+        cerr << THREAD_LIB_ERR_MSG << THREAD_NOT_FOUND_MSG << endl;
+        return -1;
+    }
 
-    allThreadList[idx].state = BLOCKED;
+    if(threadsState[tid] != BLOCKED) // TODO: what about saving the thread context?
+    {
+        threadsState[tid] = BLOCKED;
+        int idx = helperFuncs::findReadyThreadById(tid);
+        readyThreadQueue.erase(readyThreadQueue.begin()+idx); // TODO: check if resizing is needed
+        resumeSyncThread(tid);
+    }
+
     return 0;
 }
 
@@ -278,19 +323,23 @@ int uthread_block(int tid){
 */
 int uthread_resume(int tid)
 {
-    int idx = findThreadById(tid); // TODO: ask aviv - should check if tid exist?
 
-    if (tid < 0 || idx == -1) {
+    if (tid < 0) {
         cerr << THREAD_LIB_ERR_MSG << BAD_TID_ERR_MSG << endl;
         return -1;
     }
-
-    if (allThreadList[idx].state == RUNNING)
+    if (threadsState[tid] == NOT_ACTIVE)
     {
-        return 0;
+        cerr << THREAD_LIB_ERR_MSG << THREAD_NOT_FOUND_MSG << endl;
+        return -1;
     }
 
-    allThreadList[idx].state = READY;
+    if (threadsState[tid] == BLOCKED)
+    {
+        threadsState[tid] = READY;
+        readyThreadQueue.push_back(tid);
+    }
+
     return 0;
 }
 
@@ -307,7 +356,23 @@ int uthread_resume(int tid)
  * the BLOCKED state a scheduling decision should be made.
  * Return value: On success, return 0. On failure, return -1.
 */
-int uthread_sync(int tid);
+int uthread_sync(int tid)
+{
+
+    int runningThreadId = readyThreadQueue[0];
+    threadsVector[tid].syncThreadId = runningThreadId;
+    return uthread_block(runningThreadId);
+
+
+
+//    && threadsVector[tid].syncThreads.empty()) // checks if the
+//    // thread's blocked by another process
+
+
+
+
+    
+}
 
 
 /*
@@ -316,7 +381,7 @@ int uthread_sync(int tid);
 */
 int uthread_get_tid()
 {
-    return allThreadList[1].id;
+    return readyThreadQueue[0];
 }
 
 
@@ -328,7 +393,10 @@ int uthread_get_tid()
  * should be increased by 1.
  * Return value: The total number of quantums.
 */
-int uthread_get_total_quantums();
+int uthread_get_total_quantums()
+{
+    return totalSizeOfQuantums;
+}
 
 
 /*
@@ -340,5 +408,12 @@ int uthread_get_total_quantums();
  * Thread with ID tid exists it is considered as an error.
  * Return value: On success, return the number of quantums of the Thread with ID tid. On failure, return -1.
 */
-int uthread_get_quantums(int tid);
+int uthread_get_quantums(int tid)
+{
+    if(tid < 0 || threadsState[tid] == NOT_ACTIVE)
+    {
+        return -1;
+    }
+    return threadsVector[tid].quantomsRanByThread;
+}
 

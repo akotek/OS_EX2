@@ -219,10 +219,7 @@ int uthread_spawn(void (*f)(void)){
     int threadId = helperFuncs::findNextThreadId();
     struct Thread spawnedThread = initThread(f, threadId);
     threadsState[threadId] = READY;
-    if (threadId != 0) // the main thread shouldn't be inserted to the ready queue
-    {
-        readyThreadQueue.push_back(threadId);
-    }
+    readyThreadQueue.push_back(threadId);
     threadsVector.insert(threadsVector.begin() + threadId, spawnedThread);
     globalThreadCounter +=1;
 
@@ -269,7 +266,7 @@ int uthread_terminate(int tid){
 
     threadsState[tid] = NOT_ACTIVE;
     resumeSyncThread(tid);
-    threadsVector[tid] = nullptr;
+   // threadsVector[tid] = nullptr;
     int idx = helperFuncs::findReadyThreadById(tid);
     readyThreadQueue.erase(readyThreadQueue.begin()+idx); // TODO: check if resizing is needed
     globalThreadCounter--;

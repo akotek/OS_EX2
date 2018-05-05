@@ -27,7 +27,7 @@ typedef unsigned long address_t;
 #define TIMER_ERR_MSG "setitimer error."
 #define MAX_THREAD_ERR_MSG "too many threads, can't create new thread."
 #define BAD_TID_ERR_MSG "invalid tid."
-#define TERMINATING_MAIN_THREAD_MSG "terminating main thread, existing"
+#define TERMINATING_MAIN_THREAD_MSG "terminating main thread, existing process"
 #define THREAD_NOT_FOUND_MSG "thread not found in thread list"
 #define MAIN_THREAD_BLOCK_ERR_MSG "error trying to block main thread"
 #define SYNC_RUNNING_THRD_MSG "not allowed to sync running thread"
@@ -219,20 +219,24 @@ int uthread_terminate(int tid){
         return -1;
     }
     if (tid == 0){
-        cerr << TERMINATING_MAIN_THREAD_MSG <<  endl;
+        cout << TERMINATING_MAIN_THREAD_MSG <<  endl; // it's not an error
+        vector<Thread>().swap(allThreadList); // releasing memory by swapping to an empty vector
+        vector<Thread*>().swap(blockedThreadPtrList);
+        vector<Thread*>().swap(readyThreadPtrList);
         exit(0);
     }
 
     State threadState = allThreadList[tid].state;
     if (threadState == READY || threadState == RUNNING){
-        int threadIdx = findThreadPtrById(tid, readyThreadPtrList);
+        int threadIdx = findThreadPtrById(tid, readyThreadPtrList); // TODO: use vec.at(index)?
         readyThreadPtrList.erase(readyThreadPtrList.begin() + threadIdx);
+
     }
     else if (threadState == BLOCKED){
         int threadIdx = findThreadPtrById(tid, blockedThreadPtrList);
         blockedThreadPtrList.erase(blockedThreadPtrList.begin() + threadIdx);
     }
-
+    // TODO: ask aviv - should have a mechanism for saving the unused index?
     globalThreadCounter--;
 
     return 0;
@@ -249,7 +253,9 @@ int uthread_terminate(int tid){
  * Return value: On success, return 0. On failure, return -1.
 */
 int uthread_block(int tid){
-    if (tid < 0) {
+    int idx = findThreadById(tid); // TODO: ask aviv - should check if tid exist?
+
+    if (tid < 0 || idx == -1) {
         cerr << THREAD_LIB_ERR_MSG << BAD_TID_ERR_MSG << endl;
         return -1;
     }
@@ -257,9 +263,9 @@ int uthread_block(int tid){
         cerr << THREAD_LIB_ERR_MSG << MAIN_THREAD_BLOCK_ERR_MSG << endl;
         return -1;
     }
-    allThreadList[tid].state = BLOCKED;
 
-
+    allThreadList[idx].state = BLOCKED;
+    return 0;
 }
 
 
@@ -270,7 +276,23 @@ int uthread_block(int tid){
  * ID tid exists it is considered as an error.
  * Return value: On success, return 0. On failure, return -1.
 */
-int uthread_resume(int tid);
+int uthread_resume(int tid)
+{
+    int idx = findThreadById(tid); // TODO: ask aviv - should check if tid exist?
+
+    if (tid < 0 || idx == -1) {
+        cerr << THREAD_LIB_ERR_MSG << BAD_TID_ERR_MSG << endl;
+        return -1;
+    }
+
+    if (allThreadList[idx].state == RUNNING)
+    {
+        return 0;
+    }
+
+    allThreadList[idx].state = READY;
+    return 0;
+}
 
 
 /*
@@ -292,7 +314,10 @@ int uthread_sync(int tid);
  * Description: This function returns the Thread ID of the calling Thread.
  * Return value: The ID of the calling Thread.
 */
-int uthread_get_tid();
+int uthread_get_tid()
+{
+    return allThreadList[1].id;
+}
 
 
 /*

@@ -18,14 +18,13 @@ void thread2()
 
 
 
-//int main()
-//{
-//    uthread_init(30);
-//    uthread_spawn(thread1);
-//    uthread_spawn(thread2);
-//    uthread_terminate(2);
-//
-//
-//    std::cout << "Hello, World!" << std::endl;
-//    return 0;
-//}
+int main()
+{
+    uthread_init(30);
+    uthread_spawn(thread1);
+    uthread_spawn(thread2);
+    uthread_terminate(2);
+
+    std::cout << "Hello, World!" << std::endl;
+    return 0;
+}

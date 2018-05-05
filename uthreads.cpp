@@ -62,7 +62,7 @@ struct itimerval timer;
 static vector <Thread> threadsVector; // TODO: check efficiency vs. list
 static State threadsState[MAX_THREAD_NUM]; // represents
 static vector<int> readyThreadQueue; // represents readyQueue
-
+static int globalQuanta = 0;
 
 //static vector <Thread*> readyThreadPtrList;
 //static vector <Thread*> blockedThreadPtrList; // represents blockedListOfThreads
@@ -142,7 +142,21 @@ void unblockSignal(){
 
 
 
-void roundRobinAlgorithm(int sig){
+void roundRobinAlgorithm(int signal){
+    static int currentThread = readyThreadQueue[0];
+    threadsState[currentThread] = READY;
+    readyThreadQueue.erase(readyThreadQueue.begin());
+    readyThreadQueue.push_back(currentThread);
+    currentThread = readyThreadQueue[0];
+    threadsState[currentThread] = RUNNING;
+    cout << "currrent thread: " << currentThread << endl;
+    int ret_val = sigsetjmp(threadsVector[currentThread].env,1);
+    if (ret_val == 1) {
+        return;
+    }
+
+    siglongjmp(threadsVector[currentThread].env,1);
+
     cerr << "Wrong quantom input" << endl;
 }
 
@@ -167,6 +181,11 @@ int setTimerSignalHandler(int quantomUsecs){
     }
     return 0;
 }
+//void mainThreadFunc()
+//{
+//    cout << "main thread" << endl;
+//}
+
 /*
  * Description: This function initializes the Thread library.
  * You may assume that this function is called before any other Thread library
@@ -176,6 +195,7 @@ int setTimerSignalHandler(int quantomUsecs){
  * Return value: On success, return 0. On failure, return -1.
 */
 int uthread_init(int quantum_usecs){
+    globalQuanta = quantum_usecs;
     if (quantum_usecs < 0)
     {
         cerr << SYS_ERR_MSG << INVALID_QUANTOM_MSG << endl;
@@ -268,7 +288,10 @@ int uthread_terminate(int tid){
     resumeSyncThread(tid);
    // threadsVector[tid] = nullptr;
     int idx = helperFuncs::findReadyThreadById(tid);
-    readyThreadQueue.erase(readyThreadQueue.begin()+idx); // TODO: check if resizing is needed
+
+    readyThreadQueue.erase(readyThreadQueue.begin()+idx);
+    threadsState[readyThreadQueue[0]] = RUNNING;
+    setTimerSignalHandler(globalQuanta);
     globalThreadCounter--;
     return 0;
 }
@@ -299,11 +322,11 @@ int uthread_block(int tid){
         return -1;
     }
 
-    if(threadsState[tid] != BLOCKED) // TODO: what about saving the thread context?
+    if(threadsState[tid] != BLOCKED)
     {
         threadsState[tid] = BLOCKED;
         int idx = helperFuncs::findReadyThreadById(tid);
-        readyThreadQueue.erase(readyThreadQueue.begin()+idx); // TODO: check if resizing is needed
+        readyThreadQueue.erase(readyThreadQueue.begin()+idx);
         resumeSyncThread(tid);
     }
 

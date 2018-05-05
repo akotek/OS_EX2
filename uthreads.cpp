@@ -149,7 +149,7 @@ void roundRobinAlgorithm(int signal){
     readyThreadQueue.push_back(currentThread);
     currentThread = readyThreadQueue[0];
     threadsState[currentThread] = RUNNING;
-    cout << "currrent thread: " << currentThread << endl;
+//    cout << "currrent thread: " << currentThread << endl;
     int ret_val = sigsetjmp(threadsVector[currentThread].env,1);
     if (ret_val == 1) {
         return;
@@ -329,7 +329,7 @@ int uthread_block(int tid){
         readyThreadQueue.erase(readyThreadQueue.begin()+idx);
         resumeSyncThread(tid);
     }
-
+    setTimerSignalHandler(globalQuanta);
     return 0;
 }
 

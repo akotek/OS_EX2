@@ -28,9 +28,6 @@ int main()
     uthread_spawn(thread2);
 
 
-
-//    uthread_terminate(2);
-
     std::cout << "Hello, World!" << std::endl;
     for(;;) {}
     return 0;

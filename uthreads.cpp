@@ -16,12 +16,9 @@ enum State {NOT_ACTIVE, RUNNING, READY, BLOCKED};
 typedef unsigned long address_t;
 #define JB_SP 6
 #define JB_PC 7
-#define USEC_TO_MICRO  1000000
+#define USEC_TO_MICRO 1000000
 #define SYS_ERR_MSG "system error: "
 #define THREAD_LIB_ERR_MSG "thread library error: "
-#define SIGEMPTYSET_ERR_MSG "sigemptyset error."
-#define SIGADDSET_ERR_MSG "sigaddset error."
-#define SIGPROCMASK_ERR_MSG "sigprocmask error."
 #define INVALID_QUANTOM_MSG "invalid quantum size"
 #define SIGACTION_ERR_MSG "sigaction error."
 #define TIMER_ERR_MSG "setitimer error."
@@ -30,7 +27,6 @@ typedef unsigned long address_t;
 #define TERMINATING_MAIN_THREAD_MSG "terminating main thread, existing process"
 #define THREAD_NOT_FOUND_MSG "thread not found in thread list"
 #define MAIN_THREAD_BLOCK_ERR_MSG "error trying to block main thread"
-#define SYNC_RUNNING_THRD_MSG "not allowed to sync running thread"
 // ----------------
 
 // data structures:
@@ -39,10 +35,8 @@ struct Thread {
     int id;
     char stack[STACK_SIZE];
     sigjmp_buf env{};
-//    State state;
     int quantomsRanByThread;
     int syncThreadId = -1;
-
 
     Thread(int id){
         this->id = id;
@@ -82,7 +76,6 @@ namespace helperFuncs{
         return ret;
     }
 
-
     // returns the next smallest unused thread id
     int findNextThreadId()
     {
@@ -107,11 +100,23 @@ namespace helperFuncs{
 
 }
 
-
-
 // ----------------
 
+void setBlockedSignal(){
+    sigset_t set;
+    sigemptyset(&set);
+    sigaddset(&set, SIGVTALRM);
+    sigprocmask(SIG_BLOCK, &set, nullptr);
+}
+void unblockSignal(){
+    sigset_t set;
+    sigemptyset(&set);
+    sigaddset(&set, SIGVTALRM);
+    sigprocmask(SIG_UNBLOCK, &set, nullptr);
+}
+
 Thread initThread(void (*f)(void), int threadId){
+   // setBlockedSignal();
     address_t sp, pc;
 
     Thread newThread (threadId);
@@ -122,44 +127,31 @@ Thread initThread(void (*f)(void), int threadId){
     (newThread.env->__jmpbuf)[JB_PC] = helperFuncs::translate_address(pc);
     sigemptyset(&newThread.env->__saved_mask);
 
+  //  unblockSignal();
     return newThread;
 }
 
-void setBlockedSignal(){
-    sigset_t set;
-    sigemptyset(&set);
-    sigaddset(&set, SIGVTALRM);
-    sigprocmask(SIG_BLOCK, &set, NULL);
-}
-void unblockSignal(){
-    sigset_t set;
-    sigemptyset(&set);
-    sigaddset(&set, SIGVTALRM);
-    sigprocmask(SIG_UNBLOCK, &set, NULL);
-}
-
-
-
-
-
 void roundRobinAlgorithm(int signal){
+   // setBlockedSignal();
     totalSizeOfQuantums++;
     static int currentThread = readyThreadQueue[0];
+
+    int ret_val = sigsetjmp(threadsVector[currentThread].env,1);
     threadsVector[currentThread].quantomsRanByThread++;
     threadsState[currentThread] = READY;
     readyThreadQueue.erase(readyThreadQueue.begin());
     readyThreadQueue.push_back(currentThread);
-    currentThread = readyThreadQueue[0];
-    threadsState[currentThread] = RUNNING;
-//    cout << "currrent thread: " << currentThread << endl;
-    int ret_val = sigsetjmp(threadsVector[currentThread].env,1);
+    cout << "currrent thread: " << currentThread << endl;
+    printf("SWITCH: ret_val=%d\n", ret_val);
     if (ret_val == 1) {
+        //unblockSignal();
         return;
     }
-
+    currentThread = readyThreadQueue[0];
+    threadsState[currentThread] = RUNNING;
+   // unblockSignal();
     siglongjmp(threadsVector[currentThread].env,1);
 
-    cerr << "Wrong quantom input" << endl;
 }
 
 int setTimerSignalHandler(int quantomUsecs){
@@ -208,14 +200,13 @@ int uthread_init(int quantum_usecs){
     assert(setTimer != -1);
 
     int mainThread = uthread_spawn(nullptr); // init mainThread
+    assert(mainThread != -1);
     threadsState[0] = READY;
     globalThreadCounter++;
     totalSizeOfQuantums++;
-    assert(mainThread != -1);
 
     return 0;
 }
-
 
 
 /*
@@ -229,7 +220,7 @@ int uthread_init(int quantum_usecs){
  * On failure, return -1.
 */
 int uthread_spawn(void (*f)(void)){
-    //create mask to block signals() //tODO
+  //  setBlockedSignal();
 
 //    assert(f != nullptr);
     if (threadsVector.size() > MAX_THREAD_NUM)    {
@@ -245,21 +236,20 @@ int uthread_spawn(void (*f)(void)){
     threadsVector.insert(threadsVector.begin() + threadId, spawnedThread);
     globalThreadCounter +=1;
 
-
-
-    //unblock signals() // TODO
-
+   // unblockSignal();
     return spawnedThread.id;
-
 }
 
 void resumeSyncThread(int tid)
 {
+  //  setBlockedSignal();
     int syncThreadId = threadsVector[tid].syncThreadId;
     if(syncThreadId != -1)
     {
         uthread_resume(syncThreadId);
     }
+
+   // unblockSignal();
 }
 
 
@@ -275,6 +265,7 @@ void resumeSyncThread(int tid)
  * Thread is terminated, the function does not return.
 */
 int uthread_terminate(int tid){
+  //  setBlockedSignal();
     if (tid < 0)
     {
         cerr << THREAD_LIB_ERR_MSG << BAD_TID_ERR_MSG << endl;
@@ -293,11 +284,13 @@ int uthread_terminate(int tid){
 
     readyThreadQueue.erase(readyThreadQueue.begin()+idx);
     threadsState[readyThreadQueue[0]] = RUNNING;
-    setTimerSignalHandler(globalQuanta);
+    int timer = setTimerSignalHandler(globalQuanta);
+    assert(timer != -1);
     globalThreadCounter--;
+
+   // unblockSignal();
     return 0;
 }
-
 
 /*
  * Description: This function blocks the Thread with ID tid. The Thread may
@@ -309,7 +302,7 @@ int uthread_terminate(int tid){
  * Return value: On success, return 0. On failure, return -1.
 */
 int uthread_block(int tid){
-
+    //setBlockedSignal();
     if (tid < 0) {
         cerr << THREAD_LIB_ERR_MSG << BAD_TID_ERR_MSG << endl;
         return -1;
@@ -331,7 +324,10 @@ int uthread_block(int tid){
         readyThreadQueue.erase(readyThreadQueue.begin()+idx);
         resumeSyncThread(tid);
     }
-    setTimerSignalHandler(globalQuanta);
+    int timer = setTimerSignalHandler(globalQuanta);
+    assert(timer != -1);
+
+    //unblockSignal();
     return 0;
 }
 
@@ -345,7 +341,7 @@ int uthread_block(int tid){
 */
 int uthread_resume(int tid)
 {
-
+    //setBlockedSignal();
     if (tid < 0) {
         cerr << THREAD_LIB_ERR_MSG << BAD_TID_ERR_MSG << endl;
         return -1;
@@ -361,7 +357,7 @@ int uthread_resume(int tid)
         threadsState[tid] = READY;
         readyThreadQueue.push_back(tid);
     }
-
+    //unblockSignal();
     return 0;
 }
 
@@ -380,20 +376,16 @@ int uthread_resume(int tid)
 */
 int uthread_sync(int tid)
 {
-
+    //setBlockedSignal();
     int runningThreadId = readyThreadQueue[0];
     threadsVector[tid].syncThreadId = runningThreadId;
+
+    //unblockSignal();
     return uthread_block(runningThreadId);
-
-
 
 //    && threadsVector[tid].syncThreads.empty()) // checks if the
 //    // thread's blocked by another process
 
-
-
-
-    
 }
 
 
@@ -432,6 +424,7 @@ int uthread_get_total_quantums()
 */
 int uthread_get_quantums(int tid)
 {
+   // setBlockedSignal();
     if(tid < 0 || threadsState[tid] == NOT_ACTIVE)
     {
         return -1;
@@ -440,6 +433,8 @@ int uthread_get_quantums(int tid)
     {
         return threadsVector[tid].quantomsRanByThread+1;
     }
+
+  //  unblockSignal();
     return threadsVector[tid].quantomsRanByThread;
 }
 

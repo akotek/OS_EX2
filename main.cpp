@@ -9,13 +9,12 @@ void halt()
 }
 
 void thread1(){
-    cout << "t1" << endl;
-    printf("t1");
+    cout << "in t1" << endl;
     halt();
 }
 void thread2()
 {
-    cout << "t2" << endl;
+    cout << "in t2" << endl;
     halt();
 }
 
@@ -23,7 +22,7 @@ void thread2()
 
 int main()
 {
-    uthread_init(3000000);
+    uthread_init(2000000);
     uthread_spawn(thread1);
     uthread_spawn(thread2);
 

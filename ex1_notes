@@ -11,3 +11,23 @@ TODO first block:
 TODO second meeting:
 - RR algorithm
 -
+
+in f (1)
+in f (2)
+in f (3)
+f: switching
+SWITCH: ret_val=0
+in g (1)
+in g (2)
+in g (3)
+in g (4)
+in g (5)
+g: switching
+SWITCH: ret_val=0
+SWITCH: ret_val=1
+in f (4)
+in f (5)
+in f (6)
+f: switching
+SWITCH: ret_val=0
+SWITCH: ret_val=1

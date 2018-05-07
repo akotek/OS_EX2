@@ -29,6 +29,8 @@ typedef unsigned long address_t;
 #define MAIN_THREAD_BLOCK_ERR_MSG "error trying to block main thread"
 // ----------------
 
+
+//TODO switchthreads= Terminate, Block, Sync
 // data structures:
 // ----------------
 struct Thread {
@@ -53,9 +55,12 @@ static int globalThreadCounter = 0;
 static int totalSizeOfQuantums = 0;
 struct sigaction sa;
 struct itimerval timer;
-static vector <Thread> threadsVector; // TODO: check efficiency vs. list
-static State threadsState[MAX_THREAD_NUM]; // represents
-static vector<int> readyThreadQueue; // represents readyQueue
+
+int setTimerSignalHandler(int quantomUsecs);
+
+static vector <Thread> threadsVector;
+static State threadsState[MAX_THREAD_NUM];
+static vector<int> readyThreadQueue;
 static int globalQuanta = 0;
 
 //static vector <Thread*> readyThreadPtrList;
@@ -131,36 +136,37 @@ Thread initThread(void (*f)(void), int threadId){
     return newThread;
 }
 
-void roundRobinAlgorithm(int signal){
-   // setBlockedSignal();
-    totalSizeOfQuantums++;
+void switchThreads(){
+    //setBlockedSignal();
+    //setTimerSignalHandler(0);
     static int currentThread = readyThreadQueue[0];
-
     int ret_val = sigsetjmp(threadsVector[currentThread].env,1);
-    threadsVector[currentThread].quantomsRanByThread++;
-    threadsState[currentThread] = READY;
-    readyThreadQueue.erase(readyThreadQueue.begin());
-    readyThreadQueue.push_back(currentThread);
-    cout << "currrent thread: " << currentThread << endl;
-    printf("SWITCH: ret_val=%d\n", ret_val);
+    //printf("SWITCH: ret_val=%d\n", ret_val);
     if (ret_val == 1) {
         //unblockSignal();
         return;
     }
+    threadsVector[currentThread].quantomsRanByThread++;
+    threadsState[currentThread] = READY;
+
+    readyThreadQueue.erase(readyThreadQueue.begin());
+    readyThreadQueue.push_back(currentThread);
+
+    //cout << "currrent thread: " << currentThread << endl;
     currentThread = readyThreadQueue[0];
     threadsState[currentThread] = RUNNING;
-   // unblockSignal();
-    siglongjmp(threadsVector[currentThread].env,1);
+    totalSizeOfQuantums++;
 
+    //unblockSignal();
+    //setTimerSignalHandler(globalQuanta);
+    siglongjmp(threadsVector[currentThread].env,1);
+}
+
+void signalHandler(int signal){
+    switchThreads();
 }
 
 int setTimerSignalHandler(int quantomUsecs){
-
-    // Install RR algorithm as the signal handler for SIGVTALRM:
-    sa.sa_handler = &roundRobinAlgorithm;
-    if (sigaction(SIGVTALRM, &sa, nullptr) < 0) {
-        cerr << SIGACTION_ERR_MSG << endl;
-    }
 
     int sec = quantomUsecs / USEC_TO_MICRO;
     int microsec = quantomUsecs % USEC_TO_MICRO;
@@ -175,6 +181,8 @@ int setTimerSignalHandler(int quantomUsecs){
     }
     return 0;
 }
+
+
 //void mainThreadFunc()
 //{
 //    cout << "main thread" << endl;
@@ -196,12 +204,17 @@ int uthread_init(int quantum_usecs){
         return -1;
     }
 
+    // Install RR algorithm as the signal handler for SIGVTALRM:
+    sa.sa_handler = &signalHandler;
+    if (sigaction(SIGVTALRM, &sa, nullptr) < 0) {
+        cerr << SIGACTION_ERR_MSG << endl;
+    }
     int setTimer = setTimerSignalHandler(quantum_usecs);
     assert(setTimer != -1);
 
     int mainThread = uthread_spawn(nullptr); // init mainThread
     assert(mainThread != -1);
-    threadsState[0] = READY;
+    threadsState[0] = RUNNING;
     globalThreadCounter++;
     totalSizeOfQuantums++;
 
@@ -278,12 +291,18 @@ int uthread_terminate(int tid){
     }
 
     threadsState[tid] = NOT_ACTIVE;
-    resumeSyncThread(tid);
+   // resumeSyncThread(tid);TODO FIX THIS
    // threadsVector[tid] = nullptr;
-    int idx = helperFuncs::findReadyThreadById(tid);
-
-    readyThreadQueue.erase(readyThreadQueue.begin()+idx);
-    threadsState[readyThreadQueue[0]] = RUNNING;
+    if (threadsState[tid] == RUNNING){
+        switchThreads();
+        int idx = helperFuncs::findReadyThreadById(tid);
+        readyThreadQueue.erase(readyThreadQueue.begin()+idx);
+    }
+    else {
+        int idx = helperFuncs::findReadyThreadById(tid);
+        readyThreadQueue.erase(readyThreadQueue.begin()+idx);
+        threadsState[readyThreadQueue[0]] = RUNNING;
+    }
     int timer = setTimerSignalHandler(globalQuanta);
     assert(timer != -1);
     globalThreadCounter--;
@@ -317,6 +336,7 @@ int uthread_block(int tid){
         return -1;
     }
 
+    //If running: switchThreads() //TODO
     if(threadsState[tid] != BLOCKED)
     {
         threadsState[tid] = BLOCKED;

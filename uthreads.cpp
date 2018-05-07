@@ -35,13 +35,14 @@ typedef unsigned long address_t;
 // ----------------
 struct Thread {
     int id;
-    char stack[STACK_SIZE];
+    char* stack;
     sigjmp_buf env{};
     int quantomsRanByThread;
     int syncThreadId = -1;
 
     Thread(int id){
         this->id = id;
+        this->stack = new char[STACK_SIZE];
 //        this->state = READY;
         this->quantomsRanByThread = 0;
     }
@@ -138,7 +139,6 @@ Thread initThread(void (*f)(void), int threadId){
 
 void switchThreads(){
     //setBlockedSignal();
-    //setTimerSignalHandler(0);
     static int currentThread = readyThreadQueue[0];
     int ret_val = sigsetjmp(threadsVector[currentThread].env,1);
     //printf("SWITCH: ret_val=%d\n", ret_val);
@@ -210,10 +210,8 @@ int uthread_init(int quantum_usecs){
         cerr << SIGACTION_ERR_MSG << endl;
     }
     int setTimer = setTimerSignalHandler(quantum_usecs);
-    assert(setTimer != -1);
 
     int mainThread = uthread_spawn(nullptr); // init mainThread
-    assert(mainThread != -1);
     threadsState[0] = RUNNING;
     globalThreadCounter++;
     totalSizeOfQuantums++;

@@ -16,6 +16,7 @@ enum State {NOT_ACTIVE, RUNNING, READY, BLOCKED};
 typedef unsigned long address_t;
 #define JB_SP 6
 #define JB_PC 7
+#define NOT_SYNC -1
 #define USEC_TO_MICRO 1000000
 #define SYS_ERR_MSG "system error: "
 #define THREAD_LIB_ERR_MSG "thread library error: "
@@ -38,7 +39,7 @@ struct Thread {
     char* stack;
     sigjmp_buf env{};
     int quantomsRanByThread;
-    int syncThreadId = -1;
+    int syncThreadId = NOT_SYNC;
 
     Thread(int id){
         this->id = id;
@@ -56,8 +57,6 @@ static int globalThreadCounter = 0;
 static int totalSizeOfQuantums = 0;
 struct sigaction sa;
 struct itimerval timer;
-
-int setTimerSignalHandler(int quantomUsecs);
 
 static vector <Thread> threadsVector;
 static State threadsState[MAX_THREAD_NUM];
@@ -122,7 +121,7 @@ void unblockSignal(){
 }
 
 Thread initThread(void (*f)(void), int threadId){
-   // setBlockedSignal();
+    setBlockedSignal();
     address_t sp, pc;
 
     Thread newThread (threadId);
@@ -133,17 +132,17 @@ Thread initThread(void (*f)(void), int threadId){
     (newThread.env->__jmpbuf)[JB_PC] = helperFuncs::translate_address(pc);
     sigemptyset(&newThread.env->__saved_mask);
 
-  //  unblockSignal();
+    unblockSignal();
     return newThread;
 }
 
 void switchThreads(){
-    //setBlockedSignal();
+    setBlockedSignal();
     static int currentThread = readyThreadQueue[0];
     int ret_val = sigsetjmp(threadsVector[currentThread].env,1);
     //printf("SWITCH: ret_val=%d\n", ret_val);
     if (ret_val == 1) {
-        //unblockSignal();
+        unblockSignal();
         return;
     }
     threadsVector[currentThread].quantomsRanByThread++;
@@ -157,7 +156,7 @@ void switchThreads(){
     threadsState[currentThread] = RUNNING;
     totalSizeOfQuantums++;
 
-    //unblockSignal();
+    unblockSignal();
     //setTimerSignalHandler(globalQuanta);
     siglongjmp(threadsVector[currentThread].env,1);
 }
@@ -231,7 +230,7 @@ int uthread_init(int quantum_usecs){
  * On failure, return -1.
 */
 int uthread_spawn(void (*f)(void)){
-  //  setBlockedSignal();
+    setBlockedSignal();
 
 //    assert(f != nullptr);
     if (threadsVector.size() > MAX_THREAD_NUM)    {
@@ -247,20 +246,20 @@ int uthread_spawn(void (*f)(void)){
     threadsVector.insert(threadsVector.begin() + threadId, spawnedThread);
     globalThreadCounter +=1;
 
-   // unblockSignal();
+    unblockSignal();
     return spawnedThread.id;
 }
 
 void resumeSyncThread(int tid)
 {
-  //  setBlockedSignal();
+    setBlockedSignal();
     int syncThreadId = threadsVector[tid].syncThreadId;
-    if(syncThreadId != -1)
+    if(syncThreadId != NOT_SYNC)
     {
         uthread_resume(syncThreadId);
     }
 
-   // unblockSignal();
+    unblockSignal();
 }
 
 
@@ -276,7 +275,7 @@ void resumeSyncThread(int tid)
  * Thread is terminated, the function does not return.
 */
 int uthread_terminate(int tid){
-  //  setBlockedSignal();
+    setBlockedSignal();
     if (tid < 0)
     {
         cerr << THREAD_LIB_ERR_MSG << BAD_TID_ERR_MSG << endl;
@@ -288,24 +287,19 @@ int uthread_terminate(int tid){
         exit(0);
     }
 
-    threadsState[tid] = NOT_ACTIVE;
-   // resumeSyncThread(tid);TODO FIX THIS
-   // threadsVector[tid] = nullptr;
+    resumeSyncThread(tid);
+    // threadsVector[tid] = nullptr;
     if (threadsState[tid] == RUNNING){
         switchThreads();
-        int idx = helperFuncs::findReadyThreadById(tid);
-        readyThreadQueue.erase(readyThreadQueue.begin()+idx);
+//        threadsState[readyThreadQueue[0]] = RUNNING;
     }
-    else {
-        int idx = helperFuncs::findReadyThreadById(tid);
-        readyThreadQueue.erase(readyThreadQueue.begin()+idx);
-        threadsState[readyThreadQueue[0]] = RUNNING;
-    }
-    int timer = setTimerSignalHandler(globalQuanta);
-    assert(timer != -1);
-    globalThreadCounter--;
+    threadsState[tid] = NOT_ACTIVE;
+    int idx = helperFuncs::findReadyThreadById(tid);
+    readyThreadQueue.erase(readyThreadQueue.begin()+idx);
 
-   // unblockSignal();
+    setTimerSignalHandler(globalQuanta);
+    globalThreadCounter--;
+    unblockSignal();
     return 0;
 }
 
@@ -319,7 +313,7 @@ int uthread_terminate(int tid){
  * Return value: On success, return 0. On failure, return -1.
 */
 int uthread_block(int tid){
-    //setBlockedSignal();
+    setBlockedSignal();
     if (tid < 0) {
         cerr << THREAD_LIB_ERR_MSG << BAD_TID_ERR_MSG << endl;
         return -1;
@@ -333,8 +327,14 @@ int uthread_block(int tid){
         cerr << THREAD_LIB_ERR_MSG << THREAD_NOT_FOUND_MSG << endl;
         return -1;
     }
+    if (threadsState[tid] == RUNNING)
+    {
+        switchThreads();
+        threadsState[tid] = BLOCKED;
+        int idx = helperFuncs::findReadyThreadById(tid); // TODO: create inner func
+        readyThreadQueue.erase(readyThreadQueue.begin() + idx);
+    }
 
-    //If running: switchThreads() //TODO
     if(threadsState[tid] != BLOCKED)
     {
         threadsState[tid] = BLOCKED;
@@ -345,7 +345,7 @@ int uthread_block(int tid){
     int timer = setTimerSignalHandler(globalQuanta);
     assert(timer != -1);
 
-    //unblockSignal();
+    unblockSignal();
     return 0;
 }
 
@@ -359,7 +359,7 @@ int uthread_block(int tid){
 */
 int uthread_resume(int tid)
 {
-    //setBlockedSignal();
+    setBlockedSignal();
     if (tid < 0) {
         cerr << THREAD_LIB_ERR_MSG << BAD_TID_ERR_MSG << endl;
         return -1;
@@ -375,7 +375,7 @@ int uthread_resume(int tid)
         threadsState[tid] = READY;
         readyThreadQueue.push_back(tid);
     }
-    //unblockSignal();
+    unblockSignal();
     return 0;
 }
 
@@ -394,11 +394,11 @@ int uthread_resume(int tid)
 */
 int uthread_sync(int tid)
 {
-    //setBlockedSignal();
+    setBlockedSignal();
     int runningThreadId = readyThreadQueue[0];
     threadsVector[tid].syncThreadId = runningThreadId;
 
-    //unblockSignal();
+    unblockSignal();
     return uthread_block(runningThreadId);
 
 //    && threadsVector[tid].syncThreads.empty()) // checks if the
@@ -442,17 +442,17 @@ int uthread_get_total_quantums()
 */
 int uthread_get_quantums(int tid)
 {
-   // setBlockedSignal();
+    setBlockedSignal();
     if(tid < 0 || threadsState[tid] == NOT_ACTIVE)
     {
         return -1;
     }
     if(threadsState[tid] == RUNNING)
     {
-        return threadsVector[tid].quantomsRanByThread+1;
+        return threadsVector[tid].quantomsRanByThread++;
     }
 
-  //  unblockSignal();
+    unblockSignal();
     return threadsVector[tid].quantomsRanByThread;
 }
 

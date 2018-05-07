@@ -34,22 +34,22 @@ void thread2()
 }
 
 
-
-int main()
-{
-    uthread_init(2000000); //mainThread
-    uthread_spawn(thread1); // [mainThread, thread1]
-   // uthread_spawn(thread2); // [t0, t1, t2]
-
-
-
-
-    std::cout << "Hello, World!" << std::endl;
-    while (true) {
-        if (a == 0){
-            cout << "main" << endl;
-        }
-        a = 3;
-    }
-    return 0;
-}
+//
+//int main()
+//{
+//    uthread_init(2000000); //mainThread
+//    uthread_spawn(thread1); // [mainThread, thread1]
+//   // uthread_spawn(thread2); // [t0, t1, t2]
+//
+//
+//
+//
+//    std::cout << "Hello, World!" << std::endl;
+//    while (true) {
+//        if (a == 0){
+//            cout << "main" << endl;
+//        }
+//        a = 3;
+//    }
+//    return 0;
+//}

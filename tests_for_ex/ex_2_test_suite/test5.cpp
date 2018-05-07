@@ -70,10 +70,11 @@ int main()
         thread_status[i] = RUN;
     }
 
-    while (!all_done())
-    {
-        uthread_resume(1);
-    }
+//    while (!all_done())
+//    {
+//        uthread_resume(1);
+//    }
+
 
     printf(GRN "SUCCESS\n" RESET);
     uthread_terminate(0);

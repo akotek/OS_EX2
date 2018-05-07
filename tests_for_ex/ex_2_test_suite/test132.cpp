@@ -57,11 +57,12 @@ void check_sig_mask(const sigset_t& expected)
 
         // in the first 10 iterations let the thread stop because of sync / block.
         // in later iterations it will stop because of the timer
-        if (i < 5)
-        {
-            uthread_sync(next_thread());
-        }
-        else if (i < 10)
+//        if (i < 5)
+//        {
+//            uthread_sync(next_thread());
+//        }
+//        else if (i < 10)
+        if (i < 10)
         {
             uthread_block(uthread_get_tid());
         }

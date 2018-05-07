@@ -50,5 +50,8 @@ int main()
     uthread_spawn(thread1);
     uthread_spawn(thread2);
     thread2Spawned = true;
+    for(int i = 0; i < 100000000; i++){
+    }
+    uthread_terminate(2);
     halt();
 }

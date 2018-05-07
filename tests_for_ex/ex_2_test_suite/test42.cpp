@@ -40,7 +40,10 @@ void run_test()
         arr[i] = i * tid;
     }
 
-    uthread_sync(next_thread());
+    if (tid !=6)
+    {
+        uthread_sync(next_thread());
+    }
 
     for (int i = 0; i < 10; i++)
     {

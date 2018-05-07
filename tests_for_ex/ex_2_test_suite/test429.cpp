@@ -79,11 +79,11 @@ ulong partial_numerator_calculator(ulong start, ulong step)
     ulong res = 1;
     for (ulong k = start; k <= N; k += step)
     {
-        random_uthreads_call();
+//        random_uthreads_call();
 
         res *= (N + k);
 
-        random_uthreads_call();
+//        random_uthreads_call();
     }
     return res;
 }
@@ -94,11 +94,11 @@ ulong partial_denominator_calculator(ulong start, ulong step)
     ulong res = 1;
     for (ulong k = start; k <= N; k += step)
     {
-        random_uthreads_call();
+//        random_uthreads_call();
 
         res *= k;
 
-        random_uthreads_call();
+//        random_uthreads_call();
     }
     return res;
 }

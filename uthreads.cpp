@@ -6,6 +6,7 @@
 #include <sys/time.h>
 #include <memory>
 #include <iostream>
+#include <list>
 #include "uthreads.h"
 using namespace std;
 
@@ -33,8 +34,6 @@ sigset_t set, pending;
 #define MAIN_THREAD_BLOCK_ERR_MSG "error trying to block main thread"
 // ----------------
 
-
-//TODO switchthreads= Terminate, Block, Sync
 // data structures:
 // ----------------
 struct Thread {
@@ -42,7 +41,7 @@ struct Thread {
     char* stack;
     sigjmp_buf env{};
     int quantomsRanByThread;
-    int syncThreadId = NOT_SYNC;
+    list<int> syncThreadId;
 
     Thread(int id){
         this->id = id;
@@ -66,9 +65,7 @@ static vector <Thread> threadsVector;
 static State threadsState[MAX_THREAD_NUM];
 static vector<int> readyThreadQueue;
 static int globalQuanta = 0;
-
-//static vector <Thread*> readyThreadPtrList;
-//static vector <Thread*> blockedThreadPtrList; // represents blockedListOfThreads
+static int gRunningThread = 0;
 
 // ----------------
 
@@ -155,15 +152,12 @@ void resumeSyncThread(int tid)
 {
 
     setBlockedSignal();
-    int syncThreadId = threadsVector[tid].syncThreadId;
-    if(syncThreadId != NOT_SYNC)
+    for(int &syncId : threadsVector[tid].syncThreadId)
     {
-        printf("resume thread: %d\n", syncThreadId);
-        uthread_resume(syncThreadId);
+        uthread_resume(syncId);
+
     }
-    threadsVector[tid].syncThreadId = NOT_SYNC;
-    // TODO: Check if should reset timer
-//    setTimerSignalHandler(globalQuanta);
+    threadsVector[tid].syncThreadId.clear();
     unblockSignal();
 }
 
@@ -185,31 +179,32 @@ Thread initThread(void (*f)(void), int threadId){
 }
 
 void switchThreads(){
+
+
     setBlockedSignal();
-    int currentThread = readyThreadQueue[0];
-    int ret_val = sigsetjmp(threadsVector[currentThread].env,1);
-//    cout << "currentThread: " <<currentThread << endl;
-//    printf("SWITCH: ret_val=%d\n", ret_val);
+
+    if (threadsState[gRunningThread] == RUNNING){
+        threadsState[gRunningThread] = READY;
+        readyThreadQueue.erase(readyThreadQueue.begin());
+        readyThreadQueue.push_back(gRunningThread);
+    }
+
+    int ret_val = sigsetjmp(threadsVector[gRunningThread].env,1);
     if (ret_val == 1) {
-        printf("currentRunningThread: %d\n", readyThreadQueue[0]);
-        resumeSyncThread(readyThreadQueue[0]);
         unblockSignal();
+        setTimerSignalHandler(globalQuanta);
         return;
     }
-    threadsVector[currentThread].quantomsRanByThread++;
-    threadsState[currentThread] = READY;
 
-    readyThreadQueue.erase(readyThreadQueue.begin());
-    readyThreadQueue.push_back(currentThread);
 
-    //cout << "currrent thread: " << currentThread << endl;
-    currentThread = readyThreadQueue[0];
-    threadsState[currentThread] = RUNNING;
-    resumeSyncThread(currentThread);
+    gRunningThread = readyThreadQueue[0];
+    threadsState[gRunningThread] = RUNNING;
+
+    threadsVector[gRunningThread].quantomsRanByThread++;
+
     totalSizeOfQuantums++;
     unblockSignal();
-//    setTimerSignalHandler(globalQuanta);
-    siglongjmp(threadsVector[currentThread].env,1);
+    siglongjmp(threadsVector[gRunningThread].env,1);
 }
 
 void signalHandler(int signal){
@@ -248,6 +243,7 @@ int uthread_init(int quantum_usecs){
 
     int mainThread = uthread_spawn(nullptr); // init mainThread
     threadsState[0] = RUNNING;
+    threadsVector[0].quantomsRanByThread++;
     globalThreadCounter++;
     totalSizeOfQuantums++;
 
@@ -310,18 +306,22 @@ int uthread_terminate(int tid){
         vector<Thread>().swap(threadsVector); // releasing memory by swapping to an empty vector
         exit(0);
     }
-
+    State tmpState = threadsState[tid];
     resumeSyncThread(tid);
-    // threadsVector[tid] = nullptr;
-    if (threadsState[tid] == RUNNING){
-        switchThreads();
-//        threadsState[readyThreadQueue[0]] = RUNNING;
-    }
     threadsState[tid] = NOT_ACTIVE;
-    int idx = helperFuncs::findReadyThreadById(tid);
-    readyThreadQueue.erase(readyThreadQueue.begin()+idx);
+    if (tmpState != BLOCKED)
+    {
 
-    setTimerSignalHandler(globalQuanta);
+        int idx = helperFuncs::findReadyThreadById(tid); // TODO: create inner func
+        readyThreadQueue.erase(readyThreadQueue.begin() + idx);
+
+    }
+    if (tmpState == RUNNING)
+    {
+        gRunningThread = tid;
+        switchThreads();
+    }
+
     globalThreadCounter--;
     unblockSignal();
     return 0;
@@ -346,28 +346,27 @@ int uthread_block(int tid){
         cerr << THREAD_LIB_ERR_MSG << MAIN_THREAD_BLOCK_ERR_MSG << endl;
         return -1;
     }
-    if (threadsState[tid] == NOT_ACTIVE)
+
+    State tmpState = threadsState[tid];
+    threadsState[tid] = BLOCKED;
+    if (tmpState == READY)
+    {
+        int idx = helperFuncs::findReadyThreadById(tid);
+        readyThreadQueue.erase(readyThreadQueue.begin()+idx);
+    }
+
+
+    if (tmpState == NOT_ACTIVE)
     {
         cerr << THREAD_LIB_ERR_MSG << THREAD_NOT_FOUND_MSG << endl;
         return -1;
     }
-    if (threadsState[tid] == RUNNING)
+    if (tmpState == RUNNING)
     {
+        gRunningThread = tid;
         switchThreads();
-        threadsState[tid] = BLOCKED;
-        int idx = helperFuncs::findReadyThreadById(tid); // TODO: create inner func
-        readyThreadQueue.erase(readyThreadQueue.begin() + idx);
-        int timer = setTimerSignalHandler(globalQuanta); // TODO: Check with Aviv
-        assert(timer != -1);
     }
 
-    if(threadsState[tid] != BLOCKED)
-    {
-        threadsState[tid] = BLOCKED;
-        int idx = helperFuncs::findReadyThreadById(tid);
-        readyThreadQueue.erase(readyThreadQueue.begin()+idx);
-//        resumeSyncThread(tid);
-    }
 
     unblockSignal();
     return 0;
@@ -383,7 +382,7 @@ int uthread_block(int tid){
 */
 int uthread_resume(int tid)
 {
-    printf("RESUMES : %d\n", tid);
+//    printf("RESUMES : %d\n", tid);
     setBlockedSignal();
     if (tid < 0) {
         cerr << THREAD_LIB_ERR_MSG << BAD_TID_ERR_MSG << endl;
@@ -395,12 +394,10 @@ int uthread_resume(int tid)
         return -1;
     }
 
-    if (threadsState[tid] == BLOCKED)
-    {
-        printf("unblocked: %d\n", tid);
-        threadsState[tid] = READY;
-        readyThreadQueue.push_back(tid);
-    }
+
+//        printf("unblocked: %d\n", tid);
+    threadsState[tid] = READY;
+    readyThreadQueue.push_back(tid);
 
 //    printf("current Running: %d\n", readyThreadQueue[0]);
 //    setTimerSignalHandler(globalQuanta);
@@ -410,28 +407,26 @@ int uthread_resume(int tid)
 
 
 /*
- * Description: This function blocks the RUNNING Thread until Thread with
- * ID tid will move to RUNNING state (i.e.right after the next time that
- * Thread tid will stop running, the calling Thread will be resumed
- * automatically). If Thread with ID tid will be terminated before RUNNING
- * again, the calling Thread should move to READY state right after Thread
- * tid is terminated (i.e. it won’t be blocked forever). It is considered
- * as an error if no Thread with ID tid exists or if the main Thread (tid==0)
- * calls this function. Immediately after the RUNNING Thread transitions to
- * the BLOCKED state a scheduling decision should be made.
- * Return value: On success, return 0. On failure, return -1.
+This function blocks the RUNNING thread until thread with ID tid terminates (i.e. right after
+uthread_termiante(tid) is called). It is considered an error if no thread with ID tid exists or if the main thread
+(tid==0) calls this function. Immediately after the RUNNING thread transitions to the BLOCKED state a
+scheduling decision should be made.
+Return value: On success, return 0. On failure, return -1.
 */
 int uthread_sync(int tid)
 {
     setBlockedSignal();
     if(tid == readyThreadQueue[0])
     {
-        printf("RUNNING THREAD\n"); // TODO: Should we handle this?
+        cout << SYS_ERR_MSG << endl; // TODO: write error msg
+        return -1;
+//        printf("RUNNING THREAD\n"); // TODO: Should we handle this?
     }
-    printf("\nsync: %d by: %d\n", readyThreadQueue[0], tid);
     int runningThreadId = readyThreadQueue[0];
-    threadsVector[tid].syncThreadId = runningThreadId;
+
+    threadsVector[tid].syncThreadId.push_back(runningThreadId);
     int block = uthread_block(runningThreadId);
+//    switchThreads();
     unblockSignal();
     return block;
 
@@ -450,6 +445,12 @@ int uthread_get_tid()
 //    setBlockedSignal();
 //    cout << "currentRunningThread : " << readyThreadQueue[0] << endl;
 //    unblockSignal();
+//    assert(threadsState[readyThreadQueue[0]] == RUNNING);
+    if(threadsState[readyThreadQueue[0]] != RUNNING)
+    {
+//        return 0;
+        printf("ERROR\n");
+    }
     return readyThreadQueue[0];
 
 }
@@ -465,6 +466,7 @@ int uthread_get_tid()
 */
 int uthread_get_total_quantums()
 {
+
     return totalSizeOfQuantums;
 }
 

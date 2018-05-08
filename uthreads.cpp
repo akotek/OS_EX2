@@ -356,7 +356,8 @@ int uthread_block(int tid){
 
     State tmpState = threadsState[tid];
     threadsState[tid] = BLOCKED;
-    if (tmpState == READY)
+
+    if (tmpState == READY || tmpState == RUNNING)
     {
         int idx = helperFuncs::findReadyThreadById(tid);
         readyThreadQueue.erase(readyThreadQueue.begin()+idx);

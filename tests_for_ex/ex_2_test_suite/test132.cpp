@@ -15,6 +15,7 @@
 #include <cstring>
 #include <cstdio>
 #include "uthreads.h"
+#include <iostream>
 
 
 #define GRN "\e[32m"
@@ -49,6 +50,7 @@ void check_sig_mask(const sigset_t& expected)
     {
         sigset_t actual;
         sigprocmask(0, NULL, &actual);
+//        std::cout << memcmp(&expected, &actual, sizeof(sigset_t)) << std::endl;
         if (memcmp(&expected, &actual, sizeof(sigset_t)) != 0)
         {
             printf(RED "ERROR - sigmask changed\n" RESET);

@@ -4,6 +4,7 @@
 #include <cassert>
 #include <vector>
 #include <sys/time.h>
+#include <memory>
 #include <iostream>
 #include "uthreads.h"
 using namespace std;
@@ -14,6 +15,8 @@ using namespace std;
 // ----------------
 enum State {NOT_ACTIVE, RUNNING, READY, BLOCKED};
 typedef unsigned long address_t;
+sigset_t set, pending;
+
 #define JB_SP 6
 #define JB_PC 7
 #define NOT_SYNC -1
@@ -47,6 +50,7 @@ struct Thread {
 //        this->state = READY;
         this->quantomsRanByThread = 0;
     }
+    ~Thread(){}
 };
 
 // ----------------
@@ -108,16 +112,26 @@ namespace helperFuncs{
 // ----------------
 
 void setBlockedSignal(){
-    sigset_t set;
-    sigemptyset(&set);
-    sigaddset(&set, SIGVTALRM);
-    sigprocmask(SIG_BLOCK, &set, nullptr);
+//    sigset_t set;
+//    sigemptyset(&set);
+//    sigaddset(&set, SIGVTALRM);
+//    sigprocmask(SIG_BLOCK, &set, nullptr);
+    if(sigprocmask(SIG_BLOCK, &set, NULL) == -1)
+    {
+        cerr << TIMER_ERR_MSG << endl;
+        exit(-1);
+    }
+//    sigpending(&pending);
+
 }
 void unblockSignal(){
-    sigset_t set;
-    sigemptyset(&set);
-    sigaddset(&set, SIGVTALRM);
-    sigprocmask(SIG_UNBLOCK, &set, nullptr);
+//    sigemptyset(&set);
+//    sigaddset(&set, SIGVTALRM);
+    if(sigprocmask(SIG_UNBLOCK, &set, NULL))
+    {
+        cerr << TIMER_ERR_MSG << endl;
+        exit(-1);
+    }
 }
 
 Thread initThread(void (*f)(void), int threadId){
@@ -138,9 +152,10 @@ Thread initThread(void (*f)(void), int threadId){
 
 void switchThreads(){
     setBlockedSignal();
-    static int currentThread = readyThreadQueue[0];
+    int currentThread = readyThreadQueue[0];
     int ret_val = sigsetjmp(threadsVector[currentThread].env,1);
-    //printf("SWITCH: ret_val=%d\n", ret_val);
+    cout << "currentThread: " <<currentThread << endl;
+//    printf("SWITCH: ret_val=%d\n", ret_val);
     if (ret_val == 1) {
         unblockSignal();
         return;

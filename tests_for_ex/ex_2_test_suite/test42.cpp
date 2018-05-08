@@ -55,13 +55,14 @@ void run_test()
     }
 
     int b1 = tid * 314, b2 = tid * 141;
-
     // let switching be invoked by the timer
+
     wait_next_quantum();
 
 
     if ((b1 != tid * 314) || (b2 != tid * 141) || (tid != uthread_get_tid()))
     {
+        printf("\ntid : %d , get_thread_id: %d \n", tid, uthread_get_tid());
         printf(RED "ERROR - stack values changed\n" RESET);
         exit(1);
     }

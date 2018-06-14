@@ -1,0 +1,7 @@
+test8:
+--------------
+***0***
+***1***
+***0***
+***1***
+Program should terminate after this line

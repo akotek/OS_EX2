@@ -14,13 +14,12 @@ using namespace std;
 
 // Constants and DEFINES:
 // ----------------
-enum State {NOT_ACTIVE, RUNNING, READY, BLOCKED};
+enum State {NOT_ACTIVE, RUNNING, READY, BLOCKED, SYNCED};
 typedef unsigned long address_t;
-sigset_t set, pending;
+sigset_t set;
 
 #define JB_SP 6
 #define JB_PC 7
-#define NOT_SYNC -1
 #define USEC_TO_MICRO 1000000
 #define SYS_ERR_MSG "system error: "
 #define THREAD_LIB_ERR_MSG "thread library error: "
@@ -29,7 +28,6 @@ sigset_t set, pending;
 #define TIMER_ERR_MSG "setitimer error."
 #define MAX_THREAD_ERR_MSG "too many threads, can't create new thread."
 #define BAD_TID_ERR_MSG "invalid tid."
-#define TERMINATING_MAIN_THREAD_MSG "terminating main thread, existing process"
 #define THREAD_NOT_FOUND_MSG "thread not found in thread list"
 #define MAIN_THREAD_BLOCK_ERR_MSG "error trying to block main thread"
 // ----------------
@@ -44,14 +42,13 @@ struct Thread {
     list<int> syncThreadId;
     bool isSyncThread;
 
-    Thread(int id){
+    explicit Thread(int id){
         this->id = id;
         this->stack = new char[STACK_SIZE];
 //        this->state = READY;
         this->quantomsRanByThread = 0;
         this->isSyncThread = false;
     }
-    ~Thread(){}
 };
 
 // ----------------
@@ -73,40 +70,40 @@ static int gRunningThread = 0;
 
 // helper functions:
 // ----------------
-namespace helperFuncs{
-    address_t translate_address(address_t addr)
-    {
-        address_t ret;
-        asm volatile("xor    %%fs:0x30,%0\n"
-                "rol    $0x11,%0\n"
-        : "=g" (ret)
-        : "0" (addr));
-        return ret;
-    }
 
-    // returns the next smallest unused thread id
-    int findNextThreadId()
-    {
-        for(int idx=0; idx<MAX_THREAD_NUM; idx++)
-        {
-            if(threadsState[idx] == NOT_ACTIVE)
-            {
-                return idx;
-            }
-        }
-    }
-
-    int findReadyThreadById(int threadId)
-    {
-        assert(threadId >= 0);
-        for(vector<int>::size_type i = 0; i != readyThreadQueue.size(); i++) {
-            if (readyThreadQueue[i] == threadId) return (int)i;
-        }
-        cerr << THREAD_NOT_FOUND_MSG << endl;
-        return -1;
-    }
-
+address_t translate_address(address_t addr)
+{
+    address_t ret;
+    asm volatile("xor    %%fs:0x30,%0\n"
+            "rol    $0x11,%0\n"
+    : "=g" (ret)
+    : "0" (addr));
+    return ret;
 }
+
+// returns the next smallest unused thread id
+int findNextThreadId()
+{
+    for(int idx=0; idx<MAX_THREAD_NUM; idx++)
+    {
+        if(threadsState[idx] == NOT_ACTIVE)
+        {
+            return idx;
+        }
+    }
+    return -1;
+}
+
+int findReadyThreadById(int threadId)
+{
+    assert(threadId >= 0);
+    for(vector<int>::size_type i = 0; i != readyThreadQueue.size(); i++) {
+        if (readyThreadQueue[i] == threadId) return (int)i;
+    }
+    cerr << THREAD_NOT_FOUND_MSG << endl;
+    return -1;
+}
+
 
 // ----------------
 
@@ -115,7 +112,7 @@ void setBlockedSignal(){
 //    sigemptyset(&set);
 //    sigaddset(&set, SIGVTALRM);
 //    sigprocmask(SIG_BLOCK, &set, nullptr);
-    if(sigprocmask(SIG_BLOCK, &set, NULL) == -1)
+    if(sigprocmask(SIG_BLOCK, &set, nullptr) == -1)
     {
         cerr << TIMER_ERR_MSG << endl;
         exit(-1);
@@ -126,7 +123,7 @@ void setBlockedSignal(){
 void unblockSignal(){
 //    sigemptyset(&set);
 //    sigaddset(&set, SIGVTALRM);
-    if(sigprocmask(SIG_UNBLOCK, &set, NULL))
+    if(sigprocmask(SIG_UNBLOCK, &set, nullptr))
     {
         cerr << TIMER_ERR_MSG << endl;
         exit(-1);
@@ -150,13 +147,37 @@ int setTimerSignalHandler(int quantomUsecs){
 
 
 
+
+//
+//void resumeSyncThread(int tid)
+//{
+//
+//    setBlockedSignal();
+//    for(int &syncId : threadsVector[tid].syncThreadId)
+//    {
+//        if(threadsState[syncId] == NOT_ACTIVE && threadsState[tid] != BLOCKED)
+//        {
+//            uthread_resume(syncId);
+//            threadsState[tid] = READY;
+//            readyThreadQueue.push_back(tid);
+//            threadsVector[syncId].isSyncThread = false;
+//        }
+//
+//    }
+//    threadsVector[tid].syncThreadId.clear();
+//    unblockSignal();
+//}
+
+
+
+
 void resumeSyncThread(int tid)
 {
 
     setBlockedSignal();
     for(int &syncId : threadsVector[tid].syncThreadId)
     {
-        if(threadsState[syncId] == BLOCKED)
+        if(threadsState[syncId] == SYNCED)
         {
             uthread_resume(syncId);
             threadsVector[syncId].isSyncThread = false;
@@ -176,8 +197,8 @@ Thread initThread(void (*f)(void), int threadId){
     sp = (address_t)newThread.stack + STACK_SIZE - sizeof(address_t);
     pc = (f != nullptr ? (address_t)f : 0); // 0 if mainThread -TODO: maybe it not contradict vector
     sigsetjmp(newThread.env, 1);
-    (newThread.env->__jmpbuf)[JB_SP] = helperFuncs::translate_address(sp);
-    (newThread.env->__jmpbuf)[JB_PC] = helperFuncs::translate_address(pc);
+    (newThread.env->__jmpbuf)[JB_SP] = translate_address(sp);
+    (newThread.env->__jmpbuf)[JB_PC] = translate_address(pc);
     sigemptyset(&newThread.env->__saved_mask);
 
     unblockSignal();
@@ -245,9 +266,9 @@ int uthread_init(int quantum_usecs){
     if (sigaction(SIGVTALRM, &sa, nullptr) < 0) {
         cerr << SIGACTION_ERR_MSG << endl;
     }
-    int setTimer = setTimerSignalHandler(quantum_usecs);
+    setTimerSignalHandler(quantum_usecs);
 
-    int mainThread = uthread_spawn(nullptr); // init mainThread
+    uthread_spawn(nullptr); // init mainThread
     threadsState[0] = RUNNING;
     threadsVector[0].quantomsRanByThread++;
     globalThreadCounter++;
@@ -277,7 +298,7 @@ int uthread_spawn(void (*f)(void)){
     }
 
 
-    int threadId = helperFuncs::findNextThreadId();
+    int threadId = findNextThreadId();
     struct Thread spawnedThread = initThread(f, threadId);
     threadsState[threadId] = READY;
     readyThreadQueue.push_back(threadId);
@@ -308,7 +329,10 @@ int uthread_terminate(int tid){
         return -1;
     }
     if (tid == 0){
-        cout << TERMINATING_MAIN_THREAD_MSG <<  endl; // it's not an error
+        for(vector<Thread>::size_type i = 0; i != threadsVector.size(); i++)
+        {
+            delete[] threadsVector[i].stack; // delete the stack memory
+        }
         vector<Thread>().swap(threadsVector); // releasing memory by swapping to an empty vector
         exit(0);
     }
@@ -319,7 +343,7 @@ int uthread_terminate(int tid){
     if (tmpState != BLOCKED)
     {
 
-        int idx = helperFuncs::findReadyThreadById(tid); // TODO: create inner func
+        int idx = findReadyThreadById(tid); // TODO: create inner func
         readyThreadQueue.erase(readyThreadQueue.begin() + idx);
 
     }
@@ -359,7 +383,7 @@ int uthread_block(int tid){
 
     if (tmpState == READY || tmpState == RUNNING)
     {
-        int idx = helperFuncs::findReadyThreadById(tid);
+        int idx = findReadyThreadById(tid);
         readyThreadQueue.erase(readyThreadQueue.begin()+idx);
     }
 
@@ -424,14 +448,14 @@ int uthread_sync(int tid)
     setBlockedSignal();
     if(tid == readyThreadQueue[0])
     {
-        cout << SYS_ERR_MSG << endl; // TODO: write error msg
+        cout << SYS_ERR_MSG << endl;
         return -1;
-//        printf("RUNNING THREAD\n"); // TODO: Should we handle this?
     }
     int runningThreadId = readyThreadQueue[0];
 
     threadsVector[tid].syncThreadId.push_back(runningThreadId);
     int block = uthread_block(runningThreadId);
+    threadsState[runningThreadId] = SYNCED;
 //    switchThreads();
     threadsVector[runningThreadId].isSyncThread = true;
     unblockSignal();
